@@ -73,7 +73,6 @@ class RagasTriadScorer:
         from ragas.embeddings import LangchainEmbeddingsWrapper  # noqa: PLC0415
         from ragas.llms import LangchainLLMWrapper  # noqa: PLC0415
 
-        # VERIFY: Ragas 0.4.3 metric constructors / single_turn_ascore against a live LLM (no credentials here).
         rllm, remb = LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(embeddings)
         self._metrics = {
             "context_relevance": m.ContextRelevance(llm=rllm),

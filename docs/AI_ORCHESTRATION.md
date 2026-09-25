@@ -65,3 +65,51 @@ demo-scenario tests were re-run (5 passed). The summary and demo script were add
 | docs — README description | docs: README project description; also records PR #15 (providers/groq-primary) as open and unmerged at the hard stop | docs/readme-description | #16 |
 | providers — Groq primary + OpenAI fallback, fastembed | code: src/main.py FallbackLLM/ChatGroq/fastembed, Groq errors → 503, Ragas name adapter, triad strictness=1 + sequential metrics; tests: provider wiring + fallback unit tests, live scenarios 3 passed against Groq; default 56 passed (06038e1 message says 57 by mistake); docs: README, .env.example, known_limitations | providers/groq-primary | #15 |
 | docs — live demo script | docs: demo_script.md rewritten around the live Groq run (3 passed, 79 s) with offline fallback (re-verified 5 passed) | docs/demo-live-groq | #17 |
+
+## Orchestration narrative: after wrap-up (22:32–23:31)
+
+Every step was requested by the lead in chat and followed the same branch → PR → row → merge loop.
+The table rows sit above this section; the rows added after the first narrative follow its end.
+
+**Housekeeping and first live attempt (22:33–22:42).**
+- `AGENTS.md` committed; ten empty untracked scaffold stubs deleted (row "chore — AGENTS.md", PR #11,
+  `866f0f0`).
+- The lead supplied an OpenAI key, and the agent listed the available models live instead of naming
+  them from memory. The lead chose `gpt-5.4-mini`.
+- The first live run found two real defects: Ragas imports ran before the shim, and provider errors
+  surfaced as 500. Both were fixed, each with a regression test confirmed to fail on the old code.
+- Live verification itself was blocked by OpenAI `429 insufficient_quota` (row H5, PR #12,
+  `1604a61`).
+
+**Design and observability gaps closed (22:45–22:52).** The lead asked whether the system design and
+observability were covered. The agent answered with the concrete gaps, then:
+- Wrote `docs/architecture.md` with four Mermaid diagrams, an error-boundary table, trade-offs and
+  scaling limits. Checking the doc against the code found that a triad timeout escaped as a 500; it
+  was fixed in the same PR (row "docs — architecture", PR #13, `003c29f`).
+- Added per-request correlation IDs, verified on the real server (row "obs — request ID", PR #14,
+  `a90cb09`).
+
+**Provider switch and live verification (22:56–23:24).**
+- The lead redirected to Groq as primary with OpenAI as the fallback. The agent probed Groq live:
+  chat works, but there's no embeddings API (404).
+- The agent asked about models and embeddings. The lead chose `openai/gpt-oss-120b` and local
+  fastembed `BAAI/bge-small-en-v1.5` (384 dimensions, matching the schema).
+- The first Groq live run returned correct answers in all three scenarios, but the Ragas triad was
+  incomplete. At the 23:08 checkpoint the branch was pushed unmerged under the hard-stop rule, while
+  the README description shipped separately (PR #16, `70d9c1c`).
+- On the lead's instruction to fix and merge:
+  - Answer relevance hung because Ragas requests 3 generations; fixed with `strictness=1`.
+  - Context relevance failed only when judge calls ran concurrently; metrics now run sequentially.
+  - The live run then passed 3 of 3 with every metric scored.
+- After merging `main` into the branch and resolving a table-row conflict, it merged (row "providers —
+  Groq …", PR #15, `18293de`).
+- The demo script was rewritten around the live run (PR #17, `92bde5d`).
+
+**Process slips, recorded rather than hidden.**
+- Twice a commit landed on local `main` instead of the feature branch. Neither was pushed; each was
+  moved to its branch without rewriting remote history.
+- Commit `06038e1`'s message says "57 passed"; the observed count was 56, as its row records.
+
+**Reconciliation (23:31).** This entry's PR removed the resolved Ragas `VERIFY:` marker and updated
+`known_limitations.md`, `master_plan.md` and `summary.md` to the post-live state. It also refreshed
+the coverage report: 56 passed, 91%.

@@ -18,8 +18,10 @@ plain text. Each organisation (tenant) can only ever search its own documents. T
 - **Scores every answer** on three quality measures: were the right documents found, is the answer
   supported by them, and does it address the question. The scores are logged.
 
-It was built in about an hour inside a two-hour window. There are 49 automated tests (92% of the code
-exercised), and they run automatically on every change.
+It was built in about an hour inside a two-hour window. There are 56 automated tests (91% of the code
+exercised), and they run automatically on every change. It has also been verified end to end against a
+real AI model (Groq): all three required demonstration scenarios produced correct, cited answers, and
+every answer was scored for quality.
 
 ## The most important trade-off
 
@@ -31,10 +33,10 @@ does not happen at all. At this stage, correctness was worth more than scale.
 
 ## Remaining work, in priority order
 
-1. **Connect a real AI model and verify it end to end.** No model credentials were available, so the
-   answer generation and quality scoring have only been tested with stand-ins. Everything else,
-   including the database, parsing, search and access control, was tested for real.
-2. **Choose the AI provider formally.** OpenAI is wired in as a provisional option.
+1. **Verify monitoring (tracing) against a live Langfuse server.** It's wired in, but it needs a
+   running Langfuse instance and access keys.
+2. **Verify the backup AI provider.** OpenAI is configured as the fallback if Groq is unavailable, but
+   that account currently has no credit, so the fallback hasn't been exercised live.
 3. **Improve PDF layout handling** beyond automatic table detection. This was cut for time.
 4. **Replace the demo login** (a fixed list of access tokens) with the company's identity provider.
 5. **Plan for scale** if document volume grows past roughly a million fragments.

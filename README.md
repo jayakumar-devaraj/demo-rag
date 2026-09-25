@@ -5,7 +5,7 @@
 Read from `pyproject.toml` / `uv.lock` and the running container.
 
 - **Language / tooling:** Python 3.13.13, managed by uv 0.11.19. `uv sync` installs, and `uv run` runs everything.
-- **Persistence:** PostgreSQL 16.14 with the pgvector extension 0.8.6 (image `pgvector/pgvector:pg16`, see `docker-compose.yml`). One store holds `page_registry` and `chunks`, so the hash gate, the purge and the upsert happen in one transaction.
+- **Persistence:** PostgreSQL 16.14 with the pgvector extension 0.8.6 (image `pgvector/pgvector:pg16`, see `docker-compose.yml`). The idempotent `src/db/schema.sql` is applied at app startup (FastAPI lifespan) and by the compose init script. One store holds `page_registry` and `chunks`, so the hash gate, the purge and the upsert happen in one transaction.
 - **DB driver:** psycopg[binary] 3.3.6, async connections (`src/db/connection.py`).
 - **Vector adapter:** pgvector (Python) 0.5.0; `Vector.to_text()` serializes embeddings for `::vector` inserts.
 - **Validation:** pydantic 2.13.5, which validates `PageIn` / `ChunkIn` at the repository boundary (SHA-256 format, embedding dimension, non-empty tenant).
@@ -18,3 +18,4 @@ Read from `pyproject.toml` / `uv.lock` and the running container.
 - **Evaluation:** ragas 0.4.3 computes ContextRelevance, Faithfulness (groundedness) and ResponseRelevancy per answer when a provider is configured; the deterministic numeric groundedness score is always computed. The triad is logged as `chat_answered` and returned in the response.
 - **Observability:** JSON-line logging (`src/utils/observability.py`). langfuse 4.15.6 LangChain callback when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set.
 - **API:** fastapi 0.141.1, served by uvicorn 0.53.0 on a SelectorEventLoop (`uv run python -m src.main`). python-multipart 0.0.32 handles uploads. 401 for a bad token, 413/415/422 for bad input, 503/504 for infrastructure failures.
+- **CI:** GitHub Actions (`.github/workflows/ci.yml`) runs `uv sync --locked` and `uv run pytest` on every push and PR, against a `pgvector/pgvector:pg16` service container. It uses actions/checkout v7.0.1, astral-sh/setup-uv v10.2.0 and uv 0.11.19.

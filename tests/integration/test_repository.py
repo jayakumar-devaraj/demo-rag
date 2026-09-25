@@ -5,7 +5,7 @@ import hashlib
 import psycopg
 import pytest
 
-from src.db.connection import EMBEDDING_DIM, run
+from src.db.connection import EMBEDDING_DIM, connect, run
 from src.db.repository import ChunkIn, PageIn, PageStatus, stored_hash, write_page
 
 pytestmark = pytest.mark.integration
@@ -54,3 +54,14 @@ def test_failure_mid_transaction_keeps_old_state(conn, tenant):
         run(write_page(conn, _page(tenant, "v2"), _chunks("bad\x00chunk")))
     assert run(stored_hash(conn, tenant, "doc-1", "page:1")) == old.sha256
     assert run(_chunk_texts(conn, tenant)) == ["old-a"]
+
+
+def test_write_is_committed_and_visible_to_a_new_connection(conn, tenant):
+    run(stored_hash(conn, tenant, "doc-1", "page:1"))  # a read first, as the pipeline does
+    run(write_page(conn, _page(tenant, "v1"), _chunks("committed")))
+    run(conn.close())
+    fresh = run(connect())
+    try:
+        assert run(_chunk_texts(fresh, tenant)) == ["committed"]
+    finally:
+        run(fresh.close())

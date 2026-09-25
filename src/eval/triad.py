@@ -78,7 +78,7 @@ class RagasTriadScorer:
         self._metrics = {
             "context_relevance": m.ContextRelevance(llm=rllm),
             "groundedness": m.Faithfulness(llm=rllm),
-            "answer_relevance": m.ResponseRelevancy(llm=rllm, embeddings=remb),
+            "answer_relevance": m.ResponseRelevancy(llm=rllm, embeddings=remb, strictness=1),  # n>1 generations hang on Groq
         }
 
     async def __call__(self, question: str, answer: str, contexts: list[str]) -> TriadScores:
@@ -87,10 +87,14 @@ class RagasTriadScorer:
 
         sample = SingleTurnSample(user_input=question, response=answer, retrieved_contexts=contexts)
         names = list(self._metrics)
-        results = await asyncio.wait_for(
-            asyncio.gather(*(self._metrics[n].single_turn_ascore(sample) for n in names), return_exceptions=True),
-            TRIAD_TIMEOUT_S,
-        )
+        # Sequential, each with its own deadline: one slow metric cannot erase the others' scores, and
+        # concurrent judge calls were rate-limited by the provider in the live run.
+        results: list[float | BaseException] = []
+        for n in names:
+            try:
+                results.append(await asyncio.wait_for(self._metrics[n].single_turn_ascore(sample), TRIAD_TIMEOUT_S))
+            except Exception as exc:  # noqa: BLE001 - recorded per metric and logged below, never swallowed silently
+                results.append(exc)
         scores: dict[str, float | None] = {}
         for n, r in zip(names, results, strict=True):
             if isinstance(r, Exception):

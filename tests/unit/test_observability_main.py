@@ -3,6 +3,9 @@
 import json
 import logging
 
+from langchain_core.runnables import RunnableLambda
+from pydantic import BaseModel
+
 from src.main import build_services
 from src.utils.observability import JsonFormatter, trace_callbacks
 
@@ -20,14 +23,52 @@ def test_tracing_disabled_without_langfuse_keys(monkeypatch):
     assert trace_callbacks() == []
 
 
-def test_no_provider_configured_leaves_services_empty(monkeypatch):
-    for k in ("OPENAI_API_KEY", "OPENAI_CHAT_MODEL", "OPENAI_EMBEDDING_MODEL"):
+PROVIDER_VARS = ("GROQ_API_KEY", "GROQ_CHAT_MODEL", "OPENAI_API_KEY", "OPENAI_CHAT_MODEL",
+                 "OPENAI_EMBEDDING_MODEL", "FASTEMBED_MODEL")
+
+
+def _clear_providers(monkeypatch):
+    for k in PROVIDER_VARS:
         monkeypatch.delenv(k, raising=False)
+
+
+def test_no_provider_configured_leaves_services_empty(monkeypatch):
+    _clear_providers(monkeypatch)
     s = build_services()
     assert s.embedder is None and s.llm is None and s.triad is None
 
 
 def test_partial_provider_config_is_treated_as_unconfigured(monkeypatch):
+    _clear_providers(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "placeholder-not-a-real-key")
-    monkeypatch.delenv("OPENAI_CHAT_MODEL", raising=False)
     assert build_services().llm is None
+
+
+def test_groq_is_primary_and_openai_is_fallback(monkeypatch):
+    _clear_providers(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "placeholder-not-a-real-key")
+    monkeypatch.setenv("GROQ_CHAT_MODEL", "groq-model")
+    monkeypatch.setenv("OPENAI_API_KEY", "placeholder-not-a-real-key")
+    monkeypatch.setenv("OPENAI_CHAT_MODEL", "openai-model")
+    llm = build_services().llm
+    assert type(llm.primary).__name__ == "ChatGroq" and llm.primary.model_name == "groq-model"
+    assert type(llm.fallback).__name__ == "ChatOpenAI" and llm.fallback.model_name == "openai-model"
+
+
+def test_fallback_answers_when_primary_fails():
+    from src.db.connection import run
+    from src.main import FallbackLLM
+
+    class _Out(BaseModel):
+        value: str
+
+    class _Down:
+        def with_structured_output(self, schema):
+            return RunnableLambda(lambda _: (_ for _ in ()).throw(RuntimeError("primary down")))
+
+    class _Up:
+        def with_structured_output(self, schema):
+            return RunnableLambda(lambda _: schema(value="from fallback"))
+
+    out = run(FallbackLLM(_Down(), _Up()).with_structured_output(_Out).ainvoke("q"))
+    assert out.value == "from fallback"

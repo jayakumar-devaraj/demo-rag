@@ -10,3 +10,4 @@ Read from `pyproject.toml` / `uv.lock` and the running container.
 - **Vector adapter:** pgvector (Python) 0.5.0; `Vector.to_text()` serializes embeddings for `::vector` inserts.
 - **Validation:** pydantic 2.13.5, which validates `PageIn` / `ChunkIn` at the repository boundary (SHA-256 format, embedding dimension, non-empty tenant).
 - **Testing:** pytest 9.1.1. Tests marked `integration` run against the real Postgres from `docker-compose.yml`.
+- **Document parsing:** pymupdf 1.28.2 handles PDF pages; `find_tables()` turns table grids into Markdown and the remaining text blocks are kept in reading order. openpyxl 3.1.5 handles XLSX: one unit per tab, cells labelled with Excel row numbers and column letters, and formulas kept when no cached value exists. python-docx 1.2.0 handles DOCX headings, paragraphs and inline tables in document order.

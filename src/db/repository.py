@@ -91,3 +91,26 @@ async def write_page(conn: psycopg.AsyncConnection, page: PageIn, chunks: list[C
                "status": status.value, "chunks": 0 if status is PageStatus.SKIPPED else len(chunks)},
     )
     return status
+
+
+async def find_doc_by_hashes(conn: psycopg.AsyncConnection, tenant_id: str, hashes: list[str]) -> str | None:
+    """Return the tenant's document sharing the most page hashes with an upload (rename detection)."""
+    cur = await conn.execute(
+        "SELECT doc_key FROM page_registry WHERE tenant_id = %s AND sha256 = ANY(%s)"
+        " GROUP BY doc_key ORDER BY count(*) DESC, max(updated_at) DESC LIMIT 1",
+        (tenant_id, hashes),
+    )
+    row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def delete_missing_pages(
+    conn: psycopg.AsyncConnection, tenant_id: str, doc_key: str, keep_page_keys: list[str]
+) -> int:
+    """Delete a document's pages absent from its latest version (FK cascade purges their chunks)."""
+    async with conn.transaction():
+        cur = await conn.execute(
+            "DELETE FROM page_registry WHERE tenant_id = %s AND doc_key = %s AND NOT (page_key = ANY(%s))",
+            (tenant_id, doc_key, keep_page_keys),
+        )
+    return cur.rowcount

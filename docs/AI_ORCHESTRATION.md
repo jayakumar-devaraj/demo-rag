@@ -60,3 +60,4 @@ check, feature branch, tests against the real dependency, commit, PR, orchestrat
 demo-scenario tests were re-run (5 passed). The summary and demo script were added.
 | chore — AGENTS.md | docs: AGENTS.md committed; 10 untracked empty scaffold stubs deleted locally (not in diff) | chore/agents-md-and-stub-cleanup | #11 |
 | H5 — live verification attempt (BLOCKED: OpenAI 429 insufficient_quota) | tests: 3 live scenario tests (marker live, excluded by default), 2 regression tests; code: Ragas shim ordering fix, provider errors → 503; docs: README, known_limitations, coverage (92%, 51 passed) | hardening/live-llm-verification | #12 |
+| docs — architecture | docs: docs/architecture.md (4 Mermaid diagrams, design sections, error table, trade-offs, scaling), README link; code: triad timeout/provider error no longer 500; tests: triad-timeout integration test (52 passed) | docs/architecture | #13 |

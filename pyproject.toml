@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "Polymorphic, multi-tenant agentic RAG over PDF/XLSX/DOCX/TXT"
 requires-python = "==3.13.*"
 dependencies = [
+    "openpyxl==3.1.5",
     "pgvector==0.5.0",
     "psycopg[binary]==3.3.6",
     "pydantic==2.13.5",
+    "pymupdf==1.28.2",
+    "python-docx==1.2.0",
 ]
 
 [tool.pytest.ini_options]

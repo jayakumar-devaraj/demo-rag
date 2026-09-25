@@ -23,7 +23,7 @@ Read from `pyproject.toml` / `uv.lock` and the running container.
 
 ## Architecture
 
-The data-flow diagram is in [`docs/design_dialogue.md`](docs/design_dialogue.md#architecture-shared-across-all-three-bundles), and the module layout is in [`docs/master_plan.md`](docs/master_plan.md#layout-binding-for-rule-10). In short: upload → format worker (`src/ingestion/workers.py`) → SHA-256 gate and chunking (`src/ingestion/`) → transactional write (`src/db/repository.py`). A question goes → token-bound tenant (`src/utils/auth.py`) → hybrid retrieval with RRF (`src/retrieval/hybrid.py`) → the LangGraph self-correction loop (`src/orchestration/graph.py`) → guarded synthesis (`src/agents/synthesis.py`) → RAG triad (`src/eval/triad.py`).
+The as-built architecture (diagrams, schema, hybrid ranking, loop gates, error boundaries, trade-offs, scaling) is in [`docs/architecture.md`](docs/architecture.md). The Step A data-flow diagram is in [`docs/design_dialogue.md`](docs/design_dialogue.md#architecture-shared-across-all-three-bundles), and the module layout is in [`docs/master_plan.md`](docs/master_plan.md#layout-binding-for-rule-10). In short: upload → format worker (`src/ingestion/workers.py`) → SHA-256 gate and chunking (`src/ingestion/`) → transactional write (`src/db/repository.py`). A question goes → token-bound tenant (`src/utils/auth.py`) → hybrid retrieval with RRF (`src/retrieval/hybrid.py`) → the LangGraph self-correction loop (`src/orchestration/graph.py`) → guarded synthesis (`src/agents/synthesis.py`) → RAG triad (`src/eval/triad.py`).
 
 ## Quickstart
 

@@ -3,9 +3,34 @@
 import json
 import logging
 import os
+import re
+import uuid
+from contextvars import ContextVar
 from typing import Any
 
 _RESERVED = set(vars(logging.makeLogRecord({})))
+
+request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
+_VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_base_factory = logging.getLogRecordFactory()
+
+
+def resolve_request_id(incoming: str | None) -> str:
+    """Accept a caller's X-Request-ID if it is short and safe to log; otherwise mint a new one."""
+    return incoming if incoming and _VALID_REQUEST_ID.match(incoming) else uuid.uuid4().hex
+
+
+def _record_with_request_id(*args: Any, **kwargs: Any) -> logging.LogRecord:
+    record = _base_factory(*args, **kwargs)
+    rid = request_id.get()
+    if rid is not None:
+        record.request_id = rid
+    return record
+
+
+def install_request_id_logging() -> None:
+    """Stamp the current request id onto every log record, whatever handler formats it (idempotent)."""
+    logging.setLogRecordFactory(_record_with_request_id)
 
 
 class JsonFormatter(logging.Formatter):

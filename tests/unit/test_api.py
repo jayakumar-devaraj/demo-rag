@@ -78,3 +78,22 @@ class _NoDbConn:
 
 async def _fake_connect():
     return _NoDbConn()
+
+
+
+def test_request_id_is_echoed_and_stamped_on_logs(monkeypatch, caplog):
+    monkeypatch.setattr("src.routers.api._connect", _fake_connect)
+    c = _client(monkeypatch, embedder=_QuotaExhaustedEmbedder())
+    with caplog.at_level("ERROR", logger="src.routers.api"):
+        r = c.post("/ingest", files={"file": ("a.txt", b"hello")}, headers={**AUTH, "X-Request-ID": "req-123"})
+    assert r.headers["X-Request-ID"] == "req-123"
+    errors = [rec for rec in caplog.records if rec.getMessage() == "provider_error"]
+    assert errors and errors[0].request_id == "req-123"
+
+
+def test_missing_or_unsafe_request_id_is_replaced(monkeypatch):
+    c = _client(monkeypatch)
+    minted = c.get("/health").headers["X-Request-ID"]
+    assert len(minted) == 32 and int(minted, 16) >= 0
+    unsafe = c.get("/health", headers={"X-Request-ID": "bad id with spaces"}).headers["X-Request-ID"]
+    assert unsafe != "bad id with spaces" and len(unsafe) == 32

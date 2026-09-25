@@ -19,7 +19,7 @@ from src.ingestion.workers import UnsupportedFormatError, worker_for
 from src.orchestration.graph import build_graph
 from src.retrieval.hybrid import ParentSection, retrieve
 from src.utils.auth import AuthError, Session, authenticate
-from src.utils.observability import trace_callbacks
+from src.utils.observability import install_request_id_logging, request_id, resolve_request_id, trace_callbacks
 
 log = logging.getLogger(__name__)
 
@@ -164,6 +164,20 @@ def create_app(services: Services) -> FastAPI:
         yield
 
     app = FastAPI(title="demo-rag", lifespan=lifespan)
+    install_request_id_logging()
+
+    @app.middleware("http")
+    async def correlate(request: Request, call_next: Any) -> Any:
+        """Bind one request id to every log line of this request and echo it as X-Request-ID."""
+        rid = resolve_request_id(request.headers.get("x-request-id"))
+        token = request_id.set(rid)
+        try:
+            response = await call_next(request)
+        finally:
+            request_id.reset(token)
+        response.headers["X-Request-ID"] = rid
+        return response
+
     app.state.services = services
     app.include_router(router)
     return app

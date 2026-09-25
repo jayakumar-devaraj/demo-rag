@@ -44,11 +44,11 @@ tests/unit/ , tests/integration/   (integration = real Postgres, marked `integra
 |---|------|------|---|
 | 0 | Persist plan: `docs/master_plan.md`, `docs/specs/task-N` files, `docs/AI_ORCHESTRATION.md`, `docs/known_limitations.md` | 5 min | — |
 | 1 | Skeleton + Postgres/pgvector schema (`page_registry`, `chunks`, `tenant_id` column) + transactional repo (upsert + cascading delete in one ACID transaction) + README Tech Stack section (read from manifest) | 15 min | Req 2, 3 |
-| 2 | Polymorphic ingestion: PDF/XLSX/DOCX/TXT → Markdown workers, SHA-256 gate per page/tab, structure-aware chunking, wired to Task 1's dedup/purge | 22 min | Req 1, 2, 3, 5 |
+| 2 | Polymorphic ingestion: PDF/XLSX/DOCX → Markdown workers (TXT reuses the DOCX text path; PDF tables via PyMuPDF `find_tables()` only — agreed cut 21:57), SHA-256 gate per page/tab, structure-aware chunking, wired to Task 1's dedup/purge | 17 min | Req 1, 2, 3, 5 |
 | 3 | Hybrid retrieval: dense (pgvector) + sparse (Postgres FTS) → RRF, mandatory `tenant_id` pre-filter bound to authenticated session, parent-section reassembly via FK | 15 min | Req 4, 6 |
 | 4 | LangGraph self-correction loop (sufficiency → re-query → control-gate fallback) + structured, injection-guarded synthesis (Pydantic) + Ragas RAG-triad logging + tracing (Langfuse, or structured-logging fallback without keys) + FastAPI chat endpoint | 22 min | Req 7, 8; guardrails/observability |
 
-Σ estimates = 79 min.
+Σ estimates = 74 min (after the Task 2 cut).
 
 ## Protected-concern disposition (fixed)
 

@@ -1,4 +1,4 @@
-............................................                             [100%]
+.................................................                        [100%]
 =============================== tests coverage ================================
 ______________ coverage: platform win32, python 3.13.13-final-0 _______________
 
@@ -15,18 +15,18 @@ src\ingestion\__init__.py           0      0   100%
 src\ingestion\chunking.py          50      1    98%   69
 src\ingestion\pipeline.py          36      0   100%
 src\ingestion\workers.py           78      1    99%   83
-src\main.py                        29     29     0%   3-55
+src\main.py                        29     13    55%   19, 23, 35-43, 48-51, 55
 src\orchestration\__init__.py       0      0   100%
 src\orchestration\graph.py         57      0   100%
 src\orchestration\state.py         11      0   100%
 src\retrieval\__init__.py           0      0   100%
 src\retrieval\hybrid.py            43      0   100%
 src\routers\__init__.py             0      0   100%
-src\routers\api.py                105     14    87%   73-75, 90, 94-97, 116-119, 124, 137
+src\routers\api.py                105     13    88%   73-75, 90, 94-97, 116-119, 137
 src\tools\__init__.py               0      0   100%
 src\utils\__init__.py               0      0   100%
 src\utils\auth.py                  16      0   100%
-src\utils\observability.py         19      8    58%   16-19, 24-26, 36-38
+src\utils\observability.py         19      5    74%   24-26, 36-38
 -------------------------------------------------------------
-TOTAL                             602     71    88%
-44 passed in 27.96s
+TOTAL                             602     51    92%
+49 passed in 23.13s

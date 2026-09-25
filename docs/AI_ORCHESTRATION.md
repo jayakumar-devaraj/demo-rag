@@ -65,6 +65,7 @@ demo-scenario tests were re-run (5 passed). The summary and demo script were add
 | docs — README description | docs: README project description; also records PR #15 (providers/groq-primary) as open and unmerged at the hard stop | docs/readme-description | #16 |
 | providers — Groq primary + OpenAI fallback, fastembed | code: src/main.py FallbackLLM/ChatGroq/fastembed, Groq errors → 503, Ragas name adapter, triad strictness=1 + sequential metrics; tests: provider wiring + fallback unit tests, live scenarios 3 passed against Groq; default 56 passed (06038e1 message says 57 by mistake); docs: README, .env.example, known_limitations | providers/groq-primary | #15 |
 | docs — live demo script | docs: demo_script.md rewritten around the live Groq run (3 passed, 79 s) with offline fallback (re-verified 5 passed) | docs/demo-live-groq | #17 |
+| docs — eval prompt V2 | docs: docs/prompts/coding_challenge_eval_prompt_v2.md (snapshot rule, server-side provenance anchor, authorship rule, rubric-exposure spot-check, defect withholding, Scope section); V1 unchanged | docs/eval-prompt-v2 | #18 |
 
 ## Orchestration narrative: after wrap-up (22:32–23:31)
 
@@ -109,6 +110,8 @@ observability were covered. The agent answered with the concrete gaps, then:
 - Twice a commit landed on local `main` instead of the feature branch. Neither was pushed; each was
   moved to its branch without rewriting remote history.
 - Commit `06038e1`'s message says "57 passed"; the observed count was 56, as its row records.
+- At 23:32 this agent merged PR #18 (eval prompt V2), which it did not author, by mistake: it assumed its own new PR
+  was #18, but it was #19. The merge was reported to the lead immediately; whether to revert #18 is the lead's decision.
 
 **Reconciliation (23:31).** This entry's PR removed the resolved Ragas `VERIFY:` marker and updated
 `known_limitations.md`, `master_plan.md` and `summary.md` to the post-live state. It also refreshed

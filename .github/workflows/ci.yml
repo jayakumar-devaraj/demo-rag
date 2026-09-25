@@ -27,4 +27,4 @@ jobs:
         with:
           version: "0.11.19"
       - run: uv sync --locked
-      - run: uv run pytest -q -p no:warnings
+      - run: uv run pytest -q -p no:warnings --cov=src --cov-report=term-missing

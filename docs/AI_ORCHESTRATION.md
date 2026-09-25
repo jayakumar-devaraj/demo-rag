@@ -13,7 +13,7 @@ Build-process record: one row per merge. Runtime audit trail is separate (applic
 | H2 — coverage | ci: --cov in workflow; tests: coverage report docs/coverage/coverage_report.txt (88%, 44 passed); deps: pytest-cov 7.1.0 | hardening/coverage | #7 |
 | H3 — criteria tests | tests: triad scored/logged/returned (integration), JSON audit log + provider wiring (unit); coverage report refreshed (92%, 49 passed) | hardening/criteria-tests | #8 |
 | H4 — reconcile | docs: master_plan/known_limitations corrected to match the build; VERIFY markers accounted for; planning miss logged | hardening/reconcile | #9 |
-| wrap-up | docs: README Architecture/Quickstart/Local dev/Testing/CI, demo_script, summary, this narrative, known_limitations finalized | wrapup | see PR |
+| wrap-up | docs: README Architecture/Quickstart/Local dev/Testing/CI, demo_script, summary, this narrative, known_limitations finalized | wrapup | #10 |
 
 ## Orchestration narrative
 

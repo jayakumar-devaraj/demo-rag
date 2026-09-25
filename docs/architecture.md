@@ -157,6 +157,7 @@ with `max_retries=2`.
   `page_written`, `file_ingested`, `retrieved`, `node` (per-graph-node timing span),
   `control_gate`, `chat_answered` (tenant, attempts, full triad), `provider_error`,
   `db_unavailable`, `triad_metric_failed`, `triad_unavailable`, `providers_unconfigured`, `schema_applied`.
+- **Correlation:** every request gets an ID: the caller's `X-Request-ID` if it is 1–64 characters of `[A-Za-z0-9._-]`, otherwise a new UUID. A context variable stamps it onto every log record as `request_id`, and it is echoed in the `X-Request-ID` response header.
 - **Tracing:** a Langfuse LangChain callback is attached to the graph run when `LANGFUSE_*` keys are
   set; otherwise the per-node log spans are the trace.
 - **Runtime audit trail vs. build record:** the application logs are the runtime trail.

@@ -69,10 +69,10 @@ class RagasTriadScorer:
 
     def __init__(self, llm: Any, embeddings: Any) -> None:
         """Wrap a LangChain chat model and LangChain embeddings for Ragas."""
+        m = _import_ragas()  # installs the shim; must precede every other ragas import
         from ragas.embeddings import LangchainEmbeddingsWrapper  # noqa: PLC0415
         from ragas.llms import LangchainLLMWrapper  # noqa: PLC0415
 
-        m = _import_ragas()
         # VERIFY: Ragas 0.4.3 metric constructors / single_turn_ascore against a live LLM (no credentials here).
         rllm, remb = LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(embeddings)
         self._metrics = {

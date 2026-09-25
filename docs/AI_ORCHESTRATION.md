@@ -113,4 +113,4 @@ observability were covered. The agent answered with the concrete gaps, then:
 **Reconciliation (23:31).** This entry's PR removed the resolved Ragas `VERIFY:` marker and updated
 `known_limitations.md`, `master_plan.md` and `summary.md` to the post-live state. It also refreshed
 the coverage report: 56 passed, 91%.
-| docs — reconcile after live run | docs: known_limitations, summary, master_plan, narrative (PRs #11-#17), coverage refresh (56 passed, 91%); code: resolved Ragas VERIFY comment removed | docs/reconcile-after-live | #18 |
+| docs — reconcile after live run | docs: known_limitations, summary, master_plan, narrative (PRs #11-#17), coverage refresh (56 passed, 91%); code: resolved Ragas VERIFY comment removed | docs/reconcile-after-live | #19 |

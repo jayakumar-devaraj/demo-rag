@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any
 
+import openai
 import psycopg
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -63,6 +64,12 @@ def get_session(creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_b
         raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
 
 
+def _provider_down(exc: openai.APIError) -> HTTPException:
+    """Model-provider failure (quota, outage, auth) is an infrastructure error, not the caller's."""
+    log.error("provider_error", extra={"error": type(exc).__name__, "status": getattr(exc, "status_code", None)})
+    return HTTPException(503, "model provider unavailable")
+
+
 def _services(request: Request) -> Services:
     return request.app.state.services
 
@@ -93,6 +100,8 @@ async def ingest(file: UploadFile, session: Annotated[Session, Depends(get_sessi
         return await ingest_file(conn, services.embedder, session.tenant_id, file.filename or "upload", data)
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
+    except openai.APIError as exc:
+        raise _provider_down(exc) from exc
     except (ValueError, KeyError) as exc:  # unparseable file content from the caller
         raise HTTPException(422, f"could not parse file: {type(exc).__name__}") from exc
     finally:
@@ -117,6 +126,8 @@ async def chat(body: ChatRequest, session: Annotated[Session, Depends(get_sessio
         raise HTTPException(503, "database unavailable") from exc
     except TimeoutError as exc:
         raise HTTPException(504, "model call timed out") from exc
+    except openai.APIError as exc:
+        raise _provider_down(exc) from exc
     finally:
         await conn.close()
     answer, contexts = state["answer"], [s.markdown for s in state["sections"]]

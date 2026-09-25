@@ -27,3 +27,20 @@ def test_numeric_groundedness():
 def test_ragas_metrics_import_with_shim():
     m = _import_ragas()
     assert all(hasattr(m, n) for n in ("Faithfulness", "ContextRelevance", "ResponseRelevancy"))
+
+
+def test_ragas_scorer_constructs_offline(monkeypatch):
+    """Regression: the scorer must install the import shim before its own ragas imports."""
+    import sys
+
+    for name in [m for m in sys.modules if m == "ragas" or m.startswith("ragas.")] + [
+        "langchain_community.chat_models.vertexai"
+    ]:
+        monkeypatch.delitem(sys.modules, name, raising=False)  # cold import, as in a fresh process
+    from langchain_core.embeddings.fake import FakeEmbeddings
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    from src.eval.triad import RagasTriadScorer
+
+    scorer = RagasTriadScorer(FakeListChatModel(responses=["{}"]), FakeEmbeddings(size=8))
+    assert set(scorer._metrics) == {"context_relevance", "groundedness", "answer_relevance"}

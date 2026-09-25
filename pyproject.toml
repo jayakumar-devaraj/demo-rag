@@ -23,7 +23,11 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["integration: needs the real Postgres+pgvector from docker-compose.yml (DATABASE_URL)"]
+addopts = "-m \"not live\""
+markers = [
+    "integration: needs the real Postgres+pgvector from docker-compose.yml (DATABASE_URL)",
+    "live: calls real OpenAI models; run explicitly with -m live (needs OPENAI_* in .env)",
+]
 
 [dependency-groups]
 dev = [

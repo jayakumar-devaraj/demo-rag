@@ -58,3 +58,4 @@ check, feature branch, tests against the real dependency, commit, PR, orchestrat
 **Wrap-up (22:27–).** README setup sections were verified from a fresh clone of `main` at `857fc00`:
 `uv sync --locked`, then 49 passed, then the server started and `/health` answered. The five
 demo-scenario tests were re-run (5 passed). The summary and demo script were added.
+| chore — AGENTS.md | docs: AGENTS.md committed; 10 untracked empty scaffold stubs deleted locally (not in diff) | chore/agents-md-and-stub-cleanup | #11 |

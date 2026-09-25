@@ -87,9 +87,10 @@ class RagasTriadScorer:
 
         sample = SingleTurnSample(user_input=question, response=answer, retrieved_contexts=contexts)
         names = list(self._metrics)
-        results = await asyncio.wait_for(
-            asyncio.gather(*(self._metrics[n].single_turn_ascore(sample) for n in names), return_exceptions=True),
-            TRIAD_TIMEOUT_S,
+        # Each metric has its own deadline, so one slow metric cannot erase the others' scores.
+        results = await asyncio.gather(
+            *(asyncio.wait_for(self._metrics[n].single_turn_ascore(sample), TRIAD_TIMEOUT_S) for n in names),
+            return_exceptions=True,
         )
         scores: dict[str, float | None] = {}
         for n, r in zip(names, results, strict=True):

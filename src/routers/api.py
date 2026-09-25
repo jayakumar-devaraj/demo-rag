@@ -131,11 +131,13 @@ async def chat(body: ChatRequest, session: Annotated[Session, Depends(get_sessio
     finally:
         await conn.close()
     answer, contexts = state["answer"], [s.markdown for s in state["sections"]]
+    ratio, unsupported = numeric_groundedness(answer.answer, contexts)
+    triad = TriadScores(numeric_groundedness=ratio, unsupported_numbers=unsupported)
     if services.triad is not None:
-        triad = await services.triad(body.question, answer.answer, contexts)
-    else:
-        ratio, unsupported = numeric_groundedness(answer.answer, contexts)
-        triad = TriadScores(numeric_groundedness=ratio, unsupported_numbers=unsupported)
+        try:
+            triad = await services.triad(body.question, answer.answer, contexts)
+        except (TimeoutError, openai.APIError) as exc:  # evaluation must not withhold a validated answer
+            log.warning("triad_unavailable", extra={"error": type(exc).__name__})
     log.info("chat_answered", extra={"tenant_id": session.tenant_id, "attempts": state["attempts"],
                                      "insufficient": answer.insufficient, "triad": triad.model_dump()})
     return ChatResponse(answer=answer.answer, insufficient=answer.insufficient, citations=answer.citations,

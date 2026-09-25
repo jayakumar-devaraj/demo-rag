@@ -74,3 +74,25 @@ def test_triad_is_scored_logged_and_returned_with_the_answer(monkeypatch, tenant
     assert question == "North sales" and answer == "North sales were 100." and "| 2 | North | 100 |" in contexts[0]
     logged = [r for r in caplog.records if r.getMessage() == "chat_answered"]
     assert logged and logged[0].triad["groundedness"] == 1.0 and logged[0].tenant_id == tenant
+
+
+class TimingOutTriad:
+    """TEST DOUBLE: the whole triad evaluation exceeds its deadline."""
+
+    async def __call__(self, question, answer, contexts):
+        raise TimeoutError
+
+
+def test_triad_timeout_still_returns_answer_with_numeric_score(monkeypatch, tenant):
+    monkeypatch.setenv("TENANT_TOKENS", f"tok-a:{tenant}")
+    llm = ScriptedLLM(SufficiencyVerdict=[SufficiencyVerdict(sufficient=True)],
+                      Answer=[Answer(answer="North sales were 100.")])
+    a = {"Authorization": "Bearer tok-a"}
+    with TestClient(create_app(Services(embedder=FakeEmbedder(), llm=llm, triad=TimingOutTriad()))) as client:
+        xlsx = make_xlsx({"Q1": [["Region", "Sales"], ["North", 100]]})
+        assert client.post("/ingest", files={"file": ("s.xlsx", xlsx)}, headers=a).status_code == 200
+        r = client.post("/chat", json={"question": "North sales"}, headers=a)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["answer"] == "North sales were 100." and body["triad"]["numeric_groundedness"] == 1.0
+    assert body["triad"]["groundedness"] is None

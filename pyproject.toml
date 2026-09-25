@@ -1,0 +1,20 @@
+[project]
+name = "demo-rag"
+version = "0.1.0"
+description = "Polymorphic, multi-tenant agentic RAG over PDF/XLSX/DOCX/TXT"
+requires-python = "==3.13.*"
+dependencies = [
+    "pgvector==0.5.0",
+    "psycopg[binary]==3.3.6",
+    "pydantic==2.13.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["integration: needs the real Postgres+pgvector from docker-compose.yml (DATABASE_URL)"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+]

@@ -93,7 +93,5 @@ version wins, and this table is corrected in its own commit.
 
 ## Open items
 
-- Docker daemon not responding at 21:49 (`docker ps` → 500 from `dockerDesktopLinuxEngine`); Task 1
-  rung-2 test needs real Postgres.
-- No model-provider credentials in the environment (no OpenAI/Anthropic/Groq/Voyage/Langfuse keys);
-  the locked bundle names no embedding or LLM provider. Affects Tasks 2–4.
+- Resolved 21:55: Docker daemon up; this repo runs its own pgvector container on port 5434 (5432 is taken by another project).
+- No model-provider credentials: option (c) chosen 21:57 — see known_limitations.md.

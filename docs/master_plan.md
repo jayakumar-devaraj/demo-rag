@@ -34,7 +34,7 @@ src/
   agents/         synthesis + sufficiency evaluator        existing stub dir
   orchestration/  LangGraph state + graph                  existing stub dir
   eval/           RAG-triad scoring                        new
-  tools/          retrieval tool wrappers for the graph    existing stub dir
+  tools/          unused (empty package; the graph calls the retriever directly)
   utils/          logging, tracing, config                 existing stub dir
   main.py         single runnable entrypoint (FastAPI app)
 tests/unit/ , tests/integration/   (integration = real Postgres, marked `integration`)
@@ -46,7 +46,7 @@ tests/unit/ , tests/integration/   (integration = real Postgres, marked `integra
 |---|------|------|---|
 | 0 | Persist plan: `docs/master_plan.md`, `docs/specs/task-N` files, `docs/AI_ORCHESTRATION.md`, `docs/known_limitations.md` | 5 min | — |
 | 1 | Skeleton + Postgres/pgvector schema (`page_registry`, `chunks`, `tenant_id` column) + transactional repo (upsert + cascading delete in one ACID transaction) + README Tech Stack section (read from manifest) | 15 min | Req 2, 3 |
-| 2 | Polymorphic ingestion: PDF/XLSX/DOCX → Markdown workers (TXT reuses the DOCX text path; PDF tables via PyMuPDF `find_tables()` only — agreed cut 21:57), SHA-256 gate per page/tab, structure-aware chunking, wired to Task 1's dedup/purge | 17 min | Req 1, 2, 3, 5 |
+| 2 | Polymorphic ingestion: PDF/XLSX/DOCX → Markdown workers (TXT is a minimal single-unit `TextWorker`, the same one-unit shape as DOCX; PDF tables via PyMuPDF `find_tables()` only — agreed cut 21:57), SHA-256 gate per page/tab, structure-aware chunking, wired to Task 1's dedup/purge | 17 min | Req 1, 2, 3, 5 |
 | 3 | Hybrid retrieval: dense (pgvector) + sparse (Postgres FTS) → RRF, mandatory `tenant_id` pre-filter bound to authenticated session, parent-section reassembly via FK | 15 min | Req 4, 6 |
 | 4 | LangGraph self-correction loop (sufficiency → re-query → control-gate fallback) + structured, injection-guarded synthesis (Pydantic) + Ragas RAG-triad logging + tracing (Langfuse, or structured-logging fallback without keys) + FastAPI chat endpoint | 22 min | Req 7, 8; guardrails/observability |
 
@@ -79,7 +79,7 @@ version wins, and this table is corrected in its own commit.
 | Problem §5 | Working prototype + chat interface | Task 4 (FastAPI endpoint) |
 | Problem §5 | Architecture overview | `design_dialogue.md` + this file; Phase 3 |
 | Problem §5 | Verification scenarios 1–3 | Tasks 2, 3/1, 4 tests; `docs/demo_script.md` (Phase 3) |
-| Problem §5 | Setup: containers, schema provisioning | Task 1 (compose + schema script); Phase 3 README |
+| Problem §5 | Setup: containers, schema provisioning | Task 1 (compose + schema script); hardening 1 (schema applied at app startup); Phase 3 README |
 | Problem §6 | Polymorphic parsing effectiveness | Task 2 |
 | Problem §6 | Architecture & system design quality | Tasks 1–3, design docs |
 | Problem §6 | Security & multi-tenant rigor | Task 3 (cross-tenant leak test) |
@@ -96,4 +96,4 @@ version wins, and this table is corrected in its own commit.
 ## Open items
 
 - Resolved 21:55: Docker daemon up; this repo runs its own pgvector container on port 5434 (5432 is taken by another project).
-- No model-provider credentials: option (c) chosen 21:57 — see known_limitations.md.
+- No model-provider credentials: option (c) chosen 21:57. The live LLM, embedding, Ragas and Langfuse paths are UNEXECUTED; see known_limitations.md.

@@ -1,4 +1,4 @@
-...................................................                      [100%]
+........................................................                 [100%]
 =============================== tests coverage ================================
 ______________ coverage: platform win32, python 3.13.13-final-0 _______________
 
@@ -10,23 +10,23 @@ src\db\__init__.py                  0      0   100%
 src\db\connection.py               21      1    95%   20
 src\db\repository.py               49      0   100%
 src\eval\__init__.py                0      0   100%
-src\eval\triad.py                  55     12    78%   86-102
+src\eval\triad.py                  60     17    72%   85-105
 src\ingestion\__init__.py           0      0   100%
 src\ingestion\chunking.py          50      1    98%   69
 src\ingestion\pipeline.py          36      0   100%
 src\ingestion\workers.py           78      1    99%   83
-src\main.py                        29     13    55%   19, 23, 35-43, 48-51, 55
+src\main.py                        73     22    70%   23, 27, 35, 39, 43, 47, 51, 85-91, 93-95, 113-114, 121-124, 128
 src\orchestration\__init__.py       0      0   100%
 src\orchestration\graph.py         57      0   100%
 src\orchestration\state.py         11      0   100%
 src\retrieval\__init__.py           0      0   100%
 src\retrieval\hybrid.py            43      0   100%
 src\routers\__init__.py             0      0   100%
-src\routers\api.py                113     14    88%   80-82, 97, 102, 105-106, 125-130, 148
+src\routers\api.py                128     13    90%   82-84, 99, 104, 107-108, 127-132
 src\tools\__init__.py               0      0   100%
 src\utils\__init__.py               0      0   100%
 src\utils\auth.py                  16      0   100%
-src\utils\observability.py         19      5    74%   24-26, 36-38
+src\utils\observability.py         35      5    86%   49-51, 61-63
 -------------------------------------------------------------
-TOTAL                             610     47    92%
-51 passed, 3 deselected in 8.76s
+TOTAL                             690     60    91%
+56 passed, 3 deselected in 9.16s

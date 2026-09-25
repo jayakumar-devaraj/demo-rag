@@ -1,6 +1,8 @@
 """HTTP API: /ingest and /chat, tenant bound to the bearer token, 4xx vs 5xx kept distinct."""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -9,7 +11,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadF
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from src.db.connection import connect
+from src.db.connection import apply_schema, connect
 from src.eval.triad import TriadScorer, TriadScores, numeric_groundedness
 from src.ingestion.pipeline import Embedder, IngestResult, ingest_file
 from src.ingestion.workers import UnsupportedFormatError, worker_for
@@ -137,7 +139,18 @@ async def health(services: Annotated[Services, Depends(_services)]) -> dict[str,
 
 def create_app(services: Services) -> FastAPI:
     """Build the FastAPI app around injected services."""
-    app = FastAPI(title="demo-rag")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        """Provision the idempotent schema at startup; an unreachable database fails startup loudly."""
+        conn = await connect()
+        try:
+            await apply_schema(conn)
+        finally:
+            await conn.close()
+        log.info("schema_applied")
+        yield
+
+    app = FastAPI(title="demo-rag", lifespan=lifespan)
     app.state.services = services
     app.include_router(router)
     return app

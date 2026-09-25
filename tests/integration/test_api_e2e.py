@@ -22,7 +22,11 @@ def test_ingest_then_self_correcting_chat_across_docx_and_xlsx(monkeypatch, tena
         SufficiencyVerdict=[SufficiencyVerdict(sufficient=False, missing_identifiers=["Servers"]),
                             SufficiencyVerdict(sufficient=True)],
         Answer=[Answer(answer="Servers cost 4200; north sales were 100.", citations=["r.docx#page:1"])])
-    client = TestClient(create_app(Services(embedder=FakeEmbedder(), llm=llm, triad=None)))
+    with TestClient(create_app(Services(embedder=FakeEmbedder(), llm=llm, triad=None))) as client:
+        _exercise(client)
+
+
+def _exercise(client: TestClient) -> None:
     a, b = {"Authorization": "Bearer tok-a"}, {"Authorization": "Bearer tok-b"}
 
     xlsx = make_xlsx({"Q1": [["Region", "Sales"], ["North", 100]]})

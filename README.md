@@ -1,5 +1,12 @@
 # demo-rag
 
+A multi-tenant, self-correcting RAG service that answers questions about PDFs, Excel workbooks, Word
+documents and text files. It converts every page or sheet into table-preserving Markdown and uses
+per-page SHA-256 fingerprints to skip unchanged content and atomically purge stale chunks. Search
+combines vector and keyword ranking, and every query is restricted to the caller's own tenant.
+Answers come from a LangGraph loop that re-queries for missing facts, declines when the evidence is
+insufficient, blocks numbers not found in the sources, and scores every answer on the RAG triad.
+
 ## Tech stack
 
 Read from `pyproject.toml` / `uv.lock` and the running container.

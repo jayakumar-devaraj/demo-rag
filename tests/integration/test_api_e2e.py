@@ -41,3 +41,36 @@ def _exercise(client: TestClient) -> None:
 
     other = client.post("/chat", json={"question": "North sales vs budget"}, headers=b)
     assert other.status_code == 200 and other.json()["insufficient"]  # tenant b sees none of tenant a's data
+
+
+class RecordingTriad:
+    """TEST DOUBLE: fixed triad scores; records the triple it was asked to score."""
+
+    def __init__(self) -> None:
+        self.seen: list[tuple[str, str, list[str]]] = []
+
+    async def __call__(self, question, answer, contexts):
+        from src.eval.triad import TriadScores
+
+        self.seen.append((question, answer, contexts))
+        return TriadScores(context_relevance=0.9, groundedness=1.0, answer_relevance=0.8,
+                           numeric_groundedness=1.0, unsupported_numbers=[])
+
+
+def test_triad_is_scored_logged_and_returned_with_the_answer(monkeypatch, tenant, caplog):
+    monkeypatch.setenv("TENANT_TOKENS", f"tok-a:{tenant}")
+    llm = ScriptedLLM(SufficiencyVerdict=[SufficiencyVerdict(sufficient=True)],
+                      Answer=[Answer(answer="North sales were 100.")])
+    triad = RecordingTriad()
+    a = {"Authorization": "Bearer tok-a"}
+    with TestClient(create_app(Services(embedder=FakeEmbedder(), llm=llm, triad=triad))) as client:
+        xlsx = make_xlsx({"Q1": [["Region", "Sales"], ["North", 100]]})
+        assert client.post("/ingest", files={"file": ("s.xlsx", xlsx)}, headers=a).status_code == 200
+        with caplog.at_level("INFO", logger="src.routers.api"):
+            body = client.post("/chat", json={"question": "North sales"}, headers=a).json()
+
+    assert body["triad"]["context_relevance"] == 0.9 and body["triad"]["answer_relevance"] == 0.8
+    question, answer, contexts = triad.seen[0]
+    assert question == "North sales" and answer == "North sales were 100." and "| 2 | North | 100 |" in contexts[0]
+    logged = [r for r in caplog.records if r.getMessage() == "chat_answered"]
+    assert logged and logged[0].triad["groundedness"] == 1.0 and logged[0].tenant_id == tenant

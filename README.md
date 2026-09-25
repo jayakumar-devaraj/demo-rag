@@ -20,3 +20,51 @@ Read from `pyproject.toml` / `uv.lock` and the running container.
 - **API:** fastapi 0.141.1, served by uvicorn 0.53.0 on a SelectorEventLoop (`uv run python -m src.main`). python-multipart 0.0.32 handles uploads. 401 for a bad token, 413/415/422 for bad input, 503/504 for infrastructure failures.
 - **CI:** GitHub Actions (`.github/workflows/ci.yml`) runs `uv sync --locked` and `uv run pytest` on every push and PR, against a `pgvector/pgvector:pg16` service container. It uses actions/checkout v7.0.1, astral-sh/setup-uv v10.2.0 and uv 0.11.19.
 - **Coverage:** pytest-cov 7.1.0. CI prints a term-missing report; the committed snapshot is `docs/coverage/coverage_report.txt`.
+
+## Architecture
+
+The data-flow diagram is in [`docs/design_dialogue.md`](docs/design_dialogue.md#architecture-shared-across-all-three-bundles), and the module layout is in [`docs/master_plan.md`](docs/master_plan.md#layout-binding-for-rule-10). In short: upload → format worker (`src/ingestion/workers.py`) → SHA-256 gate and chunking (`src/ingestion/`) → transactional write (`src/db/repository.py`). A question goes → token-bound tenant (`src/utils/auth.py`) → hybrid retrieval with RRF (`src/retrieval/hybrid.py`) → the LangGraph self-correction loop (`src/orchestration/graph.py`) → guarded synthesis (`src/agents/synthesis.py`) → RAG triad (`src/eval/triad.py`).
+
+## Quickstart
+
+Prerequisites: Docker, and [uv](https://docs.astral.sh/uv/) (it installs Python 3.13.13 itself).
+
+```bash
+cp .env.example .env
+```
+
+In `.env`, set `POSTGRES_PASSWORD` and make `DATABASE_URL` use the same password. Set `TENANT_TOKENS` to `token:tenant` pairs. For live answers, also set `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` and `OPENAI_EMBEDDING_MODEL`; without them, `/ingest` and `/chat` return 503.
+
+```bash
+docker compose -p demo-rag --env-file .env up -d
+```
+
+```bash
+uv sync --locked
+```
+
+```bash
+uv run --env-file .env python -m src.main
+```
+
+The API listens on `http://127.0.0.1:8000`, and the schema is applied at startup:
+
+- `GET /health` reports which providers are configured.
+- `POST /ingest` takes a multipart `file` (.pdf, .xlsx, .docx or .txt) and `Authorization: Bearer <token>`.
+- `POST /chat` takes `{"question": "..."}` with the same header. The tenant comes only from the token.
+
+## Local development
+
+Code lives under `src/<responsibility>/`, per the layout in `docs/master_plan.md`. Add dependencies with `uv add <pkg>==<version>`, keep `uv.lock` committed, and update the Tech stack section above in the same commit. Logs are JSON lines on stderr, and every graph node logs a `node` span.
+
+## Testing
+
+```bash
+uv run --env-file .env pytest -q --cov=src --cov-report=term-missing
+```
+
+Tests marked `integration` use the real Postgres from `docker-compose.yml`. LLM and embedding calls in tests use labeled test doubles (`tests/conftest.py`). The last committed coverage report is `docs/coverage/coverage_report.txt`.
+
+## Deployment/CI
+
+`.github/workflows/ci.yml` runs `uv sync --locked` and the full suite, with coverage, against a `pgvector/pgvector:pg16` service on every push and PR. No deployment target is configured.

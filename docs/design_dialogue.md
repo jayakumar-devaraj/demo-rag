@@ -137,3 +137,10 @@ one bundle with no other changes locks it without a further confirmation round).
 **Locked: Bundle 1 — Python 3.12 / LangGraph 1.2.12 + langchain-core 1.6.5 / FastAPI 0.141.1 /
 Postgres + pgvector 0.5.0 (psycopg 3.3.6) / Pydantic 2.13.5 / PyMuPDF 1.28.2, openpyxl 3.1.5,
 python-docx 1.2.0 / Ragas 0.4.3 / Langfuse 4.15.6.**
+
+## Post-lock note (appended at Task 0, 2026-09-24)
+
+The build pins Python **3.13.13**, not the 3.12 recorded above. The runtime was installed through
+`uv` and checked with `uv python list --only-installed` at 21:52 CDT (3.13.13 present). 3.13 was
+chosen over the newer 3.14.5 because more C-extension wheels are available for it. Every other
+Bundle 1 component is unchanged.

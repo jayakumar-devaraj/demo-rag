@@ -1,4 +1,4 @@
-"""Shared test helpers: in-memory document builders and a labeled test-double embedder."""
+"""Shared test helpers: in-memory document builders and labeled test doubles (embedder, LLM)."""
 
 import hashlib
 import io
@@ -62,3 +62,21 @@ def make_docx() -> bytes:
     buf = io.BytesIO()
     d.save(buf)
     return buf.getvalue()
+
+
+class ScriptedLLM:
+    """TEST DOUBLE: returns pre-scripted structured outputs per schema, records every prompt."""
+
+    def __init__(self, **scripts: list) -> None:
+        self.scripts = {k: list(v) for k, v in scripts.items()}
+        self.prompts: list[list] = []
+
+    def with_structured_output(self, schema):
+        llm = self
+
+        class _Runnable:
+            async def ainvoke(self, messages, config=None):
+                llm.prompts.append(messages)
+                return llm.scripts[schema.__name__].pop(0)
+
+        return _Runnable()

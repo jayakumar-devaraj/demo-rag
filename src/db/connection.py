@@ -22,8 +22,13 @@ def database_url() -> str:
 
 
 async def connect() -> psycopg.AsyncConnection:
-    """Open an async connection with an explicit connect timeout."""
-    return await psycopg.AsyncConnection.connect(database_url(), connect_timeout=CONNECT_TIMEOUT_S)
+    """Open an async connection with an explicit connect timeout.
+
+    autocommit=True makes every `conn.transaction()` block a real BEGIN/COMMIT; without it the
+    first statement opens an implicit transaction and those blocks degrade to savepoints that are
+    rolled back when the connection closes.
+    """
+    return await psycopg.AsyncConnection.connect(database_url(), connect_timeout=CONNECT_TIMEOUT_S, autocommit=True)
 
 
 async def apply_schema(conn: psycopg.AsyncConnection) -> None:

@@ -18,6 +18,8 @@ Python 3.13.13 (managed by `uv`) · LangGraph 1.2.12 + langchain-core 1.6.5 · F
 Postgres + pgvector 0.5.0, psycopg 3.3.6 · Pydantic 2.13.5 · PyMuPDF 1.28.2, openpyxl 3.1.5,
 python-docx 1.2.0 · Ragas 0.4.3 · Langfuse 4.15.6.
 
+Stack additions flagged at Task 4 (see known_limitations.md): uvicorn, python-multipart, langchain-openai (optional provider).
+
 Python version note: `design_dialogue.md` records 3.12 at lock; the build pins 3.13.13 (installed
 via `uv`, chosen over 3.14.5 for C-extension wheel availability) — see the appended entry there.
 

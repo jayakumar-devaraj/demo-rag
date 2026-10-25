@@ -61,6 +61,14 @@ The API listens on `http://127.0.0.1:8000`, and the schema is applied at startup
 - `POST /chat` takes `{"question": "..."}` with the same header. The tenant comes only from the token.
 - `POST /v1/retrieve` takes the same body and header and returns the retrieved passages without writing an answer. Send `X-Timeout-Ms` to set a deadline. The contract is [`docs/openapi-v1.json`](docs/openapi-v1.json); regenerate it with `uv run python -m src.routers.contract`.
 
+To run the API as a container instead (non-root, embedding model baked in, healthcheck on `/health`), set `TENANT_TOKENS` and the provider variables in `.env`, then:
+
+```bash
+docker compose -p multi-tenant-agentic-rag --env-file .env up -d --build rag-api
+```
+
+It listens on `RAG_API_PORT` (default 8000) and reaches Postgres over the compose network.
+
 ## Local development
 
 Code lives under `src/<responsibility>/`, per the layout in `docs/master_plan.md`. Add dependencies with `uv add <pkg>==<version>`, keep `uv.lock` committed, and update the Tech stack section above in the same commit. Logs are JSON lines on stderr, and every graph node logs a `node` span.
@@ -76,3 +84,5 @@ Tests marked `integration` use the real Postgres from `docker-compose.yml`. Test
 ## Deployment/CI
 
 `.github/workflows/ci.yml` runs `uv sync --locked` and the full suite, with coverage, against a `pgvector/pgvector:pg16` service on every push and PR. No deployment target is configured.
+
+`.github/workflows/publish.yml` runs on a pushed `v*` tag: it calls the CI workflow, then builds the `Dockerfile` and publishes `ghcr.io/jayakumar-devaraj/multi-tenant-agentic-rag:<tag>` using actions docker/setup-buildx-action v4.4.1, docker/login-action v4.6.0, docker/metadata-action v6.2.0 and docker/build-push-action v7.4.0. The image embeds the `FASTEMBED_MODEL` build argument (default `BAAI/bge-small-en-v1.5`); run it with the same `FASTEMBED_MODEL`, since the cache is read-only for the non-root user.

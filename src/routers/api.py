@@ -236,7 +236,7 @@ def create_app(services: Services) -> FastAPI:
         log.info("schema_applied")
         yield
 
-    app = FastAPI(title="demo-rag", lifespan=lifespan)
+    app = FastAPI(title="multi-tenant-agentic-rag", lifespan=lifespan)
     install_request_id_logging()
 
     @app.middleware("http")

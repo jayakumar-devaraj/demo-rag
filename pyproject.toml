@@ -1,5 +1,5 @@
 [project]
-name = "demo-rag"
+name = "multi-tenant-agentic-rag"
 version = "0.1.0"
 description = "Polymorphic, multi-tenant agentic RAG over PDF/XLSX/DOCX/TXT"
 requires-python = "==3.13.*"

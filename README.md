@@ -1,4 +1,4 @@
-# demo-rag
+# multi-tenant-agentic-rag
 
 A multi-tenant, self-correcting RAG service that answers questions about PDFs, Excel workbooks, Word
 documents and text files. It converts every page or sheet into table-preserving Markdown and uses
@@ -43,7 +43,7 @@ cp .env.example .env
 In `.env`, set `POSTGRES_PASSWORD` and make `DATABASE_URL` use the same password. Set `TENANT_TOKENS` to `token:tenant` pairs. For live answers, also set `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` and `OPENAI_EMBEDDING_MODEL`; without them, `/ingest` and `/chat` return 503.
 
 ```bash
-docker compose -p demo-rag --env-file .env up -d
+docker compose -p multi-tenant-agentic-rag --env-file .env up -d
 ```
 
 ```bash

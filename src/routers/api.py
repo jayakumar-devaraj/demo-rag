@@ -1,5 +1,6 @@
-"""HTTP API: /ingest and /chat, tenant bound to the bearer token, 4xx vs 5xx kept distinct."""
+"""HTTP API: /ingest, /chat and /v1/retrieve, tenant bound to the bearer token, 4xx vs 5xx kept distinct."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from typing import Annotated, Any
 import groq
 import openai
 import psycopg
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -26,15 +27,22 @@ log = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 PROVIDER_ERRORS = (openai.APIError, groq.APIError)
+PROVIDER_TIMEOUTS = (openai.APITimeoutError, groq.APITimeoutError)
+RETRIEVE_DEFAULT_TIMEOUT_S = 30.0
+RETRIEVE_MAX_TIMEOUT_MS = 120_000
 
 
 @dataclass
 class Services:
-    """Runtime dependencies; None means that provider is not configured (→ 503)."""
+    """Runtime dependencies; None means that provider is not configured (→ 503).
+
+    `retrieve_llm` is the chat model for /v1/retrieve (provider-level retries lowered); None reuses `llm`.
+    """
 
     embedder: Embedder | None
     llm: Any | None
     triad: TriadScorer | None
+    retrieve_llm: Any | None = None
 
 
 class ChatRequest(BaseModel):
@@ -54,8 +62,30 @@ class ChatResponse(BaseModel):
     triad: TriadScores
 
 
+class RetrieveRequest(BaseModel):
+    """Retrieval input; deliberately has no tenant field."""
+
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class RetrieveResponse(BaseModel):
+    """Parent sections the caller may answer from. `sections` is empty whenever `insufficient` is true."""
+
+    sections: list[ParentSection]
+    insufficient: bool
+    queries_run: list[str]
+    attempts: int
+
+
+class ErrorBody(BaseModel):
+    """Body of every handled error response."""
+
+    detail: str
+
+
 _bearer = HTTPBearer(auto_error=False)
 router = APIRouter()
+v1 = APIRouter(prefix="/v1")
 
 
 def get_session(creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]) -> Session:
@@ -146,6 +176,47 @@ async def chat(body: ChatRequest, session: Annotated[Session, Depends(get_sessio
                         queries_run=state["queries_run"], attempts=state["attempts"], triad=triad)
 
 
+@v1.post("/retrieve", response_model=RetrieveResponse, operation_id="retrieve", responses={
+    401: {"model": ErrorBody, "description": "Missing or unknown bearer token."},
+    503: {"model": ErrorBody, "description": "Model provider or database unavailable, or no provider configured."},
+    504: {"model": ErrorBody, "description": "Model call timed out, or the caller's deadline elapsed."},
+    500: {"description": "Unexpected server error (plain-text body)."},
+})
+async def retrieve_context(
+    body: RetrieveRequest, session: Annotated[Session, Depends(get_session)],
+    services: Annotated[Services, Depends(_services)],
+    x_timeout_ms: Annotated[int | None, Header(ge=1, le=RETRIEVE_MAX_TIMEOUT_MS, description=(
+        "Caller's deadline in milliseconds for the whole call. Absent: the server default applies."))] = None,
+) -> RetrieveResponse:
+    """Run the self-correcting retrieval loop for the caller's tenant and return passages; no answer is written."""
+    llm = services.retrieve_llm or services.llm
+    if llm is None or services.embedder is None:
+        raise HTTPException(503, "no LLM/embedding provider configured")
+    timeout_s = x_timeout_ms / 1000 if x_timeout_ms else RETRIEVE_DEFAULT_TIMEOUT_S
+    conn = await _connect()
+    try:
+        async def bound_retriever(query: str) -> list[ParentSection]:
+            return await retrieve(conn, services.embedder, session, query)
+
+        graph = build_graph(bound_retriever, llm, retrieve_only=True)
+        async with asyncio.timeout(timeout_s):
+            state = await graph.ainvoke({"question": body.question, "pending_queries": [body.question]},
+                                        config={"callbacks": trace_callbacks()})
+    except psycopg.OperationalError as exc:
+        raise HTTPException(503, "database unavailable") from exc
+    except (TimeoutError, *PROVIDER_TIMEOUTS) as exc:
+        raise HTTPException(504, "model call timed out") from exc
+    except PROVIDER_ERRORS as exc:
+        raise _provider_down(exc) from exc
+    finally:
+        await conn.close()
+    insufficient = not state["verdict"].sufficient
+    log.info("retrieve_answered", extra={"tenant_id": session.tenant_id, "attempts": state["attempts"],
+                                         "insufficient": insufficient, "sections": len(state["sections"])})
+    return RetrieveResponse(sections=[] if insufficient else state["sections"], insufficient=insufficient,
+                            queries_run=state["queries_run"], attempts=state["attempts"])
+
+
 @router.get("/health")
 async def health(services: Annotated[Services, Depends(_services)]) -> dict[str, bool]:
     """Report which providers are configured."""
@@ -182,4 +253,5 @@ def create_app(services: Services) -> FastAPI:
 
     app.state.services = services
     app.include_router(router)
+    app.include_router(v1)
     return app

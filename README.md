@@ -1,4 +1,4 @@
-# demo-rag
+# multi-tenant-agentic-rag
 
 A multi-tenant, self-correcting RAG service that answers questions about PDFs, Excel workbooks, Word
 documents and text files. It converts every page or sheet into table-preserving Markdown and uses
@@ -24,7 +24,7 @@ Read from `pyproject.toml` / `uv.lock` and the running container.
 - **Guardrails:** retrieved text sits only in an escaped `<documents>` data block, never in system instructions. LLM output is parsed into Pydantic models (`SufficiencyVerdict`, `Answer`). A numeric-groundedness gate replaces any answer containing numbers absent from the context with the insufficient-data message.
 - **Evaluation:** ragas 0.4.3 computes ContextRelevance, Faithfulness (groundedness) and ResponseRelevancy per answer when a provider is configured; the deterministic numeric groundedness score is always computed. The triad is logged as `chat_answered` and returned in the response.
 - **Observability:** JSON-line logging (`src/utils/observability.py`); each line carries the `request_id` (echoed as the `X-Request-ID` header). langfuse 4.15.6 LangChain callback when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set.
-- **API:** fastapi 0.141.1, served by uvicorn 0.53.0 on a SelectorEventLoop (`uv run python -m src.main`). python-multipart 0.0.32 handles uploads. 401 for a bad token, 413/415/422 for bad input, 503/504 for infrastructure failures.
+- **API:** fastapi 0.141.1, served by uvicorn 0.53.0 on a SelectorEventLoop (`uv run python -m src.main`). python-multipart 0.0.32 handles uploads. 401 for a bad token, 413/415/422 for bad input, 503/504 for infrastructure failures. `POST /v1/retrieve` is the versioned retrieval-only endpoint; `RETRIEVE_LLM_MAX_RETRIES` (default 0) sets its provider-client retries, while `/chat` keeps 2.
 - **CI:** GitHub Actions (`.github/workflows/ci.yml`) runs `uv sync --locked` and `uv run pytest` on every push and PR, against a `pgvector/pgvector:pg16` service container. It uses actions/checkout v7.0.1, astral-sh/setup-uv v10.2.0 and uv 0.11.19.
 - **Coverage:** pytest-cov 7.1.0. CI prints a term-missing report; the committed snapshot is `docs/coverage/coverage_report.txt`.
 
@@ -43,7 +43,7 @@ cp .env.example .env
 In `.env`, set `POSTGRES_PASSWORD` and make `DATABASE_URL` use the same password. Set `TENANT_TOKENS` to `token:tenant` pairs. For live answers, also set `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` and `OPENAI_EMBEDDING_MODEL`; without them, `/ingest` and `/chat` return 503.
 
 ```bash
-docker compose -p demo-rag --env-file .env up -d
+docker compose -p multi-tenant-agentic-rag --env-file .env up -d
 ```
 
 ```bash
@@ -59,6 +59,7 @@ The API listens on `http://127.0.0.1:8000`, and the schema is applied at startup
 - `GET /health` reports which providers are configured.
 - `POST /ingest` takes a multipart `file` (.pdf, .xlsx, .docx or .txt) and `Authorization: Bearer <token>`.
 - `POST /chat` takes `{"question": "..."}` with the same header. The tenant comes only from the token.
+- `POST /v1/retrieve` takes the same body and header and returns the retrieved passages without writing an answer. Send `X-Timeout-Ms` to set a deadline. The contract is [`docs/openapi-v1.json`](docs/openapi-v1.json); regenerate it with `uv run python -m src.routers.contract`.
 
 ## Local development
 

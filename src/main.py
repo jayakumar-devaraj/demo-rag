@@ -63,17 +63,17 @@ class FallbackLLM:
         return runnable.with_fallbacks([self.fallback.with_structured_output(schema)]) if self.fallback else runnable
 
 
-def _chat_models() -> list[Any]:
+def _chat_models(max_retries: int = 2) -> list[Any]:
     """Configured chat models in priority order: Groq first, OpenAI as fallback."""
     models = []
     if os.environ.get("GROQ_API_KEY") and os.environ.get("GROQ_CHAT_MODEL"):
         from langchain_groq import ChatGroq  # noqa: PLC0415
 
-        models.append(ChatGroq(model=os.environ["GROQ_CHAT_MODEL"], timeout=CHAT_TIMEOUT_S, max_retries=2))
+        models.append(ChatGroq(model=os.environ["GROQ_CHAT_MODEL"], timeout=CHAT_TIMEOUT_S, max_retries=max_retries))
     if os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_CHAT_MODEL"):
         from langchain_openai import ChatOpenAI  # noqa: PLC0415
 
-        models.append(ChatOpenAI(model=os.environ["OPENAI_CHAT_MODEL"], timeout=CHAT_TIMEOUT_S, max_retries=2))
+        models.append(ChatOpenAI(model=os.environ["OPENAI_CHAT_MODEL"], timeout=CHAT_TIMEOUT_S, max_retries=max_retries))
     return models
 
 
@@ -108,12 +108,16 @@ def build_services() -> Services:
         log.warning("providers_unconfigured", extra={"chat": bool(chats), "embeddings": embeddings is not None,
                                                      "needs": "GROQ_* or OPENAI_* chat; FASTEMBED_MODEL or OPENAI_* embeddings"})
     llm = FallbackLLM(chats[0], chats[1] if len(chats) > 1 else None) if chats else None
+    # /v1/retrieve callers own the retry policy, so its models retry inside the provider client far less than /chat's
+    lean = _chat_models(int(os.environ.get("RETRIEVE_LLM_MAX_RETRIES", "0")))
+    retrieve_llm = FallbackLLM(lean[0], lean[1] if len(lean) > 1 else None) if lean else None
     named = None
     if embeddings is not None:
         name = getattr(embeddings, "model_name", None) or getattr(embeddings, "model", "")
         named = _NamedEmbeddings(embeddings, str(name))
     triad = RagasTriadScorer(chats[0], named) if chats and named is not None else None
-    return Services(embedder=_LangchainEmbedder(embeddings) if embeddings is not None else None, llm=llm, triad=triad)
+    return Services(embedder=_LangchainEmbedder(embeddings) if embeddings is not None else None, llm=llm, triad=triad,
+                    retrieve_llm=retrieve_llm)
 
 
 def main() -> None:

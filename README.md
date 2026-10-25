@@ -64,7 +64,7 @@ The API listens on `http://127.0.0.1:8000`, and the schema is applied at startup
 To run the API as a container instead (non-root, embedding model baked in, healthcheck on `/health`), set `TENANT_TOKENS` and the provider variables in `.env`, then:
 
 ```bash
-docker compose -p demo-rag --env-file .env up -d --build rag-api
+docker compose -p multi-tenant-agentic-rag --env-file .env up -d --build rag-api
 ```
 
 It listens on `RAG_API_PORT` (default 8000) and reaches Postgres over the compose network.

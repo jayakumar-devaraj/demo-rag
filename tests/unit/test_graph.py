@@ -61,3 +61,22 @@ def test_hallucinated_number_is_blocked():
                       Answer=[Answer(answer="The budget is 9999.")])
     out = _ask(llm, [])
     assert out["answer"].insufficient and out["answer"].answer == INSUFFICIENT_MESSAGE
+
+
+def _ask_retrieve_only(llm, calls):
+    graph = build_graph(_retriever(calls), llm, retrieve_only=True)
+    return run(graph.ainvoke({"question": "total budget", "pending_queries": ["total budget"]}))
+
+
+def test_retrieve_only_stops_at_sufficient_context_without_synthesizing():
+    llm = ScriptedLLM(SufficiencyVerdict=[SufficiencyVerdict(sufficient=False, missing_identifiers=["PRJ-7"]),
+                                          SufficiencyVerdict(sufficient=True)])  # no Answer script: synthesis would KeyError
+    out = _ask_retrieve_only(llm, [])
+    assert [s.page_id for s in out["sections"]] == [1, 2] and out["attempts"] == 2
+    assert out["verdict"].sufficient and "answer" not in out
+
+
+def test_retrieve_only_still_ends_insufficient_after_max_attempts():
+    verdicts = [SufficiencyVerdict(sufficient=False, missing_identifiers=[f"X-{i}"]) for i in range(MAX_ATTEMPTS)]
+    out = _ask_retrieve_only(ScriptedLLM(SufficiencyVerdict=verdicts), [])
+    assert not out["verdict"].sufficient and out["attempts"] == MAX_ATTEMPTS

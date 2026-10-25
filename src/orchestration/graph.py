@@ -38,8 +38,12 @@ def _timed(name: str, fn: Callable[[RagState], Awaitable[dict]]) -> Callable[[Ra
     return node
 
 
-def build_graph(retriever: Retriever, llm: StructuredLLM) -> Any:
-    """Compile the graph. `retriever` is already bound to the caller's authenticated Session."""
+def build_graph(retriever: Retriever, llm: StructuredLLM, *, retrieve_only: bool = False) -> Any:
+    """Compile the graph. `retriever` is already bound to the caller's authenticated Session.
+
+    With `retrieve_only`, sufficient context ends the run at END instead of synthesizing, so the caller
+    writes the answer itself; the retrieve → evaluate → re-query loop is the same code either way.
+    """
 
     async def retrieve(state: RagState) -> dict:
         sections = {s.page_id: s for s in state.get("sections", [])}
@@ -56,7 +60,7 @@ def build_graph(retriever: Retriever, llm: StructuredLLM) -> Any:
 
     def route(state: RagState) -> str:
         if state["verdict"].sufficient:
-            return "synthesize"
+            return END if retrieve_only else "synthesize"
         fresh = [m for m in state["verdict"].missing_identifiers if m not in state["queries_run"]]
         return "requery" if fresh and state["attempts"] < MAX_ATTEMPTS else "fallback"
 
@@ -81,7 +85,7 @@ def build_graph(retriever: Retriever, llm: StructuredLLM) -> Any:
         g.add_node(name, _timed(name, fn))
     g.add_edge(START, "retrieve")
     g.add_edge("retrieve", "evaluate")
-    g.add_conditional_edges("evaluate", route, ["synthesize", "requery", "fallback"])
+    g.add_conditional_edges("evaluate", route, ["synthesize", "requery", "fallback", END])
     g.add_edge("requery", "retrieve")
     g.add_edge("synthesize", END)
     g.add_edge("fallback", END)

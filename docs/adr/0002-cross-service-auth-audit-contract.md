@@ -1,6 +1,7 @@
 # 0002 · Cross-service auth, audit and contract with the chatbot
 
-Status: **Proposed (Round 1 of 2).** Round 2 records the lead's critique and the final decision.
+Status: **Accepted (Round 2 of 2, 2026-10-28).** Round 1 below is kept as written; the final
+decision is "Decision (Round 2)".
 The matching record in the chatbot repository is its ADR 0011 (same title).
 
 ## Context
@@ -55,6 +56,33 @@ Proposed for critique:
 - **C. Audit retention period and recovery-point objective.**
 - **D. Migration tool.** The schema is applied at startup today; RLS and the audit table are the first
   changes that need versioned migrations. A one-shot migration job (for example Alembic) is proposed.
+
+## Decision (Round 2)
+
+The lead reviewed Round 1 and the agent's recommendations in chat on 2026-10-28 and agreed to them.
+Points 1–2 of Round 1 stand. Points 3–6 are accepted, with these answers to the open questions:
+
+- **A. Token shape: per-tenant client credentials now; token exchange later.** The chatbot's worker
+  presents a token from a per-tenant OIDC client whose `tenant` claim and `rag:query` scope are fixed
+  by the identity provider. This service accepts only tokens from an issuer allow-list, checks issuer
+  and audience, accepts only the configured signing algorithms (never `none`, never a shared-secret
+  algorithm), caches the JWKS, and answers 503 when the keys cannot be fetched. Token exchange
+  (RFC 8693) replaces this when the chatbot's users move to OIDC.
+- **B. Ingest callers.** Ingest tokens are issued to a pipeline service principal, not to people;
+  human uploads go through that pipeline. The audit row records the caller (`sub`) and any acting
+  identity.
+- **C. Audit.** The audit row is written in the same transaction as the ingest or delete it
+  describes, so the action and its record commit or roll back together. Default retention is 400 days
+  queryable, partitioned by month, with older partitions archived. This default is not a compliance
+  determination and is replaced by the real requirement when it is confirmed.
+- **D. Migrations.** A one-shot migration job runs under a separate owner role, using Alembic in a
+  migration image only; the API image does not include it. The API connects as a non-owner role.
+  Tables use `FORCE ROW LEVEL SECURITY`, because the table owner otherwise bypasses the policies.
+- **Rollout order:** this repository first (migrations, role split and `audit_log`; row-level security
+  with database-level cross-tenant tests; then JWT validation accepting static and JWT tokens during
+  the overlap), then the chatbot, then removal of static tokens.
+- **Check before relying on RLS:** benchmark pgvector queries with the policies on, since policies can
+  change the query plan.
 
 ## Consequences
 

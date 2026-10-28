@@ -121,9 +121,9 @@ def _services(request: Request) -> Services:
     return request.app.state.services
 
 
-async def _connect() -> psycopg.AsyncConnection:
+async def _connect(tenant_id: str) -> psycopg.AsyncConnection:
     try:
-        return await connect()
+        return await connect(tenant_id)
     except psycopg.OperationalError as exc:
         log.error("db_unavailable", extra={"error": type(exc).__name__})
         raise HTTPException(503, "database unavailable") from exc
@@ -150,7 +150,7 @@ async def ingest(file: UploadFile, session: Annotated[Session, Depends(get_sessi
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "file too large")
-    conn = await _connect()
+    conn = await _connect(session.tenant_id)
     filename = file.filename or "upload"
     try:
         # One transaction: the document's pages and its audit row commit or roll back together.
@@ -178,7 +178,7 @@ async def chat(body: ChatRequest, session: Annotated[Session, Depends(get_sessio
     """Answer a question from the caller's tenant only, via the self-correcting graph."""
     if services.llm is None or services.embedder is None:
         raise HTTPException(503, "no LLM/embedding provider configured")
-    conn = await _connect()
+    conn = await _connect(session.tenant_id)
     try:
         async def bound_retriever(query: str) -> list[ParentSection]:
             return await retrieve(conn, services.embedder, session, query)
@@ -231,7 +231,7 @@ async def retrieve_context(
     if llm is None or services.embedder is None:
         raise HTTPException(503, "no LLM/embedding provider configured")
     timeout_s = x_timeout_ms / 1000 if x_timeout_ms else RETRIEVE_DEFAULT_TIMEOUT_S
-    conn = await _connect()
+    conn = await _connect(session.tenant_id)
     try:
         async def bound_retriever(query: str) -> list[ParentSection]:
             return await retrieve(conn, services.embedder, session, query)
@@ -266,7 +266,7 @@ async def audit_trail(session: Annotated[Session, Depends(get_session)],
                       before_id: Annotated[int | None, Query(ge=1)] = None,
                       action: Action | None = None) -> AuditPage:
     """The caller's own tenant audit trail, newest first. The tenant comes only from the token."""
-    conn = await _connect()
+    conn = await _connect(session.tenant_id)
     try:
         entries = await list_audit(conn, session.tenant_id, limit, before_id, action)
     except psycopg.OperationalError as exc:

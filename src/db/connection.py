@@ -10,7 +10,7 @@ import psycopg
 EMBEDDING_DIM = 384
 CONNECT_TIMEOUT_S = 5
 # The Alembic head this code was written against; a unit test keeps it equal to migrations/versions.
-EXPECTED_SCHEMA_REVISION = "0002"
+EXPECTED_SCHEMA_REVISION = "0003"
 
 
 def database_url() -> str:
@@ -21,14 +21,25 @@ def database_url() -> str:
     return url
 
 
-async def connect() -> psycopg.AsyncConnection:
-    """Open an async connection with an explicit connect timeout.
+async def connect(tenant_id: str | None = None) -> psycopg.AsyncConnection:
+    """Open an async connection with an explicit connect timeout, bound to `tenant_id` when given.
+
+    The tenant is stored in the session setting `app.tenant_id`, which the row-level-security policies
+    compare against (migration 0003). It is session-level, not SET LOCAL, because the connection is
+    autocommit and is closed at the end of the request; if connections are ever pooled, reset it on release.
 
     autocommit=True makes every `conn.transaction()` block a real BEGIN/COMMIT; without it the
     first statement opens an implicit transaction and those blocks degrade to savepoints that are
     rolled back when the connection closes.
     """
-    return await psycopg.AsyncConnection.connect(database_url(), connect_timeout=CONNECT_TIMEOUT_S, autocommit=True)
+    conn = await psycopg.AsyncConnection.connect(database_url(), connect_timeout=CONNECT_TIMEOUT_S, autocommit=True)
+    if tenant_id is not None:
+        try:
+            await conn.execute("SELECT set_config('app.tenant_id', %s, false)", (tenant_id,))
+        except BaseException:
+            await conn.close()
+            raise
+    return conn
 
 
 async def require_schema_revision(conn: psycopg.AsyncConnection) -> None:

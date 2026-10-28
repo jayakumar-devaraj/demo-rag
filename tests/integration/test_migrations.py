@@ -18,8 +18,10 @@ BASELINE_SQL = (ROOT / "migrations" / "baseline_schema.sql").read_text(encoding=
 SHA = "a" * 64
 
 
-async def _fetch(url: str, sql: str) -> list[tuple]:
+async def _fetch(url: str, sql: str, tenant: str | None = None) -> list[tuple]:
     async with await psycopg.AsyncConnection.connect(url, autocommit=True) as c:
+        if tenant is not None:
+            await c.execute("SELECT set_config('app.tenant_id', %s, false)", (tenant,))
         return await (await c.execute(sql)).fetchall()
 
 
@@ -54,8 +56,8 @@ def test_app_role_has_least_privilege(conn):
         with scratch_database(conn, database_url()) as owner_url:
             upgrade_head(owner_url, app_role=role)
             app_url = with_credentials(owner_url, role, password)
-            run(_fetch(app_url, "INSERT INTO audit_log (tenant_id, subject, action, outcome) VALUES ('t', 's', 'chat', 'ok') RETURNING 1"))
-            assert run(_fetch(app_url, "SELECT count(*) FROM audit_log")) == [(1,)]
+            run(_fetch(app_url, "INSERT INTO audit_log (tenant_id, subject, action, outcome) VALUES ('t', 's', 'chat', 'ok') RETURNING 1", "t"))
+            assert run(_fetch(app_url, "SELECT count(*) FROM audit_log", "t")) == [(1,)]
             for denied in (
                 "UPDATE audit_log SET outcome = 'error'",
                 "DELETE FROM audit_log",
@@ -65,8 +67,8 @@ def test_app_role_has_least_privilege(conn):
             ):
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     run(_fetch(app_url, denied))
-            run(_fetch(app_url, f"INSERT INTO page_registry (tenant_id, doc_key, page_key, sha256, source_name, markdown) VALUES ('t', 'd', 'p', '{SHA}', 's', 'm') RETURNING 1"))
-            run(_fetch(app_url, "DELETE FROM page_registry RETURNING 1"))
+            run(_fetch(app_url, f"INSERT INTO page_registry (tenant_id, doc_key, page_key, sha256, source_name, markdown) VALUES ('t', 'd', 'p', '{SHA}', 's', 'm') RETURNING 1", "t"))
+            run(_fetch(app_url, "DELETE FROM page_registry RETURNING 1", "t"))
 
             async def check() -> None:
                 async with await psycopg.AsyncConnection.connect(app_url, autocommit=True) as c:

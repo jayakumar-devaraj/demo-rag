@@ -167,6 +167,10 @@ with `max_retries=2`.
 
 Every authenticated `/ingest`, `/v1/retrieve` and `/chat` writes one `audit_log` row: tenant, subject (a fingerprint of the token), action, document key, outcome, `X-Request-ID`, a well-formed `traceparent`, and counts only (never question or document text). An ingest runs in one transaction with its audit row, so the document and its record commit or roll back together; a failed ingest leaves no partial document. For retrieve and chat the row is written before the response is released, and if it cannot be written the request fails (500, or 503 when the database is unreachable) and no data is returned. Failures after authentication (provider errors, timeouts, unparseable files) add an `error` row on a best-effort basis; if even that cannot be written, `audit_error_not_recorded` is logged. The application role can only `SELECT` and `INSERT` on the table. `GET /audit` reads the caller's own tenant, scoped in SQL by the token's tenant.
 
+### Row-level security
+
+The database enforces tenant isolation as well as the SQL predicates. Each request opens its own connection and binds the token's tenant to it (`app.tenant_id`); policies on `page_registry`, `chunks` and `audit_log` compare every row to that setting, with `FORCE ROW LEVEL SECURITY`, so a statement that omitted its `WHERE tenant_id` would still see only the bound tenant, and an unbound connection sees nothing. Writes for another tenant are rejected. The API role is not a superuser and has no `BYPASSRLS`; a superuser connection (for example the owner role in `.env` for host-run development) bypasses the policies. Rationale and the session-level binding: ADR 0002 amendment; benchmark: `docs/reports/rls-benchmark-2026-10-28.md`.
+
 ## 7. Key trade-offs
 
 | Decision | Chosen | Alternative | Why |

@@ -58,7 +58,7 @@ def client(monkeypatch):
             tenants.append(session.tenant_id)
             return [_section(1)]
 
-        async def connect():
+        async def connect(*_):
             return _Conn()
 
         async def record_audit(conn, session, action, outcome, doc_key=None, detail=None):

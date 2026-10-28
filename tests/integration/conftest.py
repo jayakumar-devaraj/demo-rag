@@ -1,11 +1,19 @@
-"""Integration fixtures: a real Postgres+pgvector connection (docker-compose.yml), schema applied."""
+"""Integration fixtures: a real Postgres+pgvector connection (docker-compose.yml), schema migrated."""
 
+import os
 import uuid
 from collections.abc import Iterator
 
 import pytest
 
-from src.db.connection import apply_schema, connect, run
+from src.db.connection import connect, database_url, run
+from tests.migration_support import upgrade_head
+
+
+@pytest.fixture(scope="session", autouse=True)
+def migrated_database() -> None:
+    """Bring the shared test database to the Alembic head, as the migrate job does in deployment."""
+    upgrade_head(os.environ.get("MIGRATION_DATABASE_URL") or database_url())
 
 
 @pytest.fixture
@@ -16,8 +24,7 @@ def tenant() -> str:
 
 @pytest.fixture
 def conn() -> Iterator[object]:
-    """Yield a live async connection; the schema is applied idempotently first."""
+    """Yield a live async connection to the migrated test database."""
     c = run(connect())
-    run(apply_schema(c))
     yield c
     run(c.close())

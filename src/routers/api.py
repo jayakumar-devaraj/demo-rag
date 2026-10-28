@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request,
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from src.db.connection import apply_schema, connect
+from src.db.connection import connect, require_schema_revision
 from src.eval.triad import TriadScorer, TriadScores, numeric_groundedness
 from src.ingestion.pipeline import Embedder, IngestResult, ingest_file
 from src.ingestion.workers import UnsupportedFormatError, worker_for
@@ -227,13 +227,13 @@ def create_app(services: Services) -> FastAPI:
     """Build the FastAPI app around injected services."""
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        """Provision the idempotent schema at startup; an unreachable database fails startup loudly."""
+        """Verify the migrated schema at startup; an unreachable or unmigrated database fails startup loudly."""
         conn = await connect()
         try:
-            await apply_schema(conn)
+            await require_schema_revision(conn)
         finally:
             await conn.close()
-        log.info("schema_applied")
+        log.info("schema_verified")
         yield
 
     app = FastAPI(title="multi-tenant-agentic-rag", lifespan=lifespan)

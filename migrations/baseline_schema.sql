@@ -1,4 +1,4 @@
--- Schema provisioning: mounted as a docker-entrypoint init script and applied by src/db/connection.py.
+-- Baseline schema, applied by migrations/versions/0001_baseline.py. Do not edit: add a new migration.
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- One row per normalized page (PDF/DOCX/TXT) or tab (XLSX). sha256 is taken over the Markdown

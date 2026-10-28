@@ -12,8 +12,9 @@ insufficient, blocks numbers not found in the sources, and scores every answer o
 Read from `pyproject.toml` / `uv.lock` and the running container.
 
 - **Language / tooling:** Python 3.13.13, managed by uv 0.11.19. `uv sync` installs, and `uv run` runs everything.
-- **Persistence:** PostgreSQL 16.14 with the pgvector extension 0.8.6 (image `pgvector/pgvector:pg16`, see `docker-compose.yml`). The idempotent `src/db/schema.sql` is applied at app startup (FastAPI lifespan) and by the compose init script. One store holds `page_registry` and `chunks`, so the hash gate, the purge and the upsert happen in one transaction.
+- **Persistence:** PostgreSQL 16.14 with the pgvector extension 0.8.6 (image `pgvector/pgvector:pg16`, see `docker-compose.yml`). Versioned Alembic migrations (`migrations/`) run as the schema owner in the compose `migrate` job; the API connects as the non-owner role `APP_DB_USER` (created by `deploy/db/001_app_role.sh`), has no DDL rights, and at startup only verifies the migration revision. One store holds `page_registry` and `chunks`, so the hash gate, the purge and the upsert happen in one transaction.
 - **DB driver:** psycopg[binary] 3.3.6, async connections (`src/db/connection.py`).
+- **Migrations:** alembic 1.20.1 (SQLAlchemy 2.1.0 as its dependency), installed from the `migrate` dependency group and present only in the `migrate` image target, never in the API image. `alembic.ini` and `migrations/env.py` read `MIGRATION_DATABASE_URL` (the owner) and, when `APP_DB_ROLE` is set, grant the API role its privileges on every run; `audit_log` is granted `SELECT, INSERT` only.
 - **Vector adapter:** pgvector (Python) 0.5.0; `Vector.to_text()` serializes embeddings for `::vector` inserts.
 - **Validation:** pydantic 2.13.5, which validates `PageIn` / `ChunkIn` at the repository boundary (SHA-256 format, embedding dimension, non-empty tenant).
 - **Testing:** pytest 9.1.1. Tests marked `integration` run against the real Postgres from `docker-compose.yml`.
@@ -40,7 +41,7 @@ Prerequisites: Docker, and [uv](https://docs.astral.sh/uv/) (it installs Python 
 cp .env.example .env
 ```
 
-In `.env`, set `POSTGRES_PASSWORD` and make `DATABASE_URL` use the same password. Set `TENANT_TOKENS` to `token:tenant` pairs. For live answers, also set `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` and `OPENAI_EMBEDDING_MODEL`; without them, `/ingest` and `/chat` return 503.
+In `.env`, set `POSTGRES_PASSWORD` and make `MIGRATION_DATABASE_URL` use the same password (the owner, used by the `migrate` job). Set `APP_DB_PASSWORD` and make `DATABASE_URL` use `APP_DB_USER` with that password (the API role); the `db` container creates the role on first start. Set `TENANT_TOKENS` to `token:tenant` pairs. For live answers, also set `OPENAI_API_KEY`, `OPENAI_CHAT_MODEL` and `OPENAI_EMBEDDING_MODEL`; without them, `/ingest` and `/chat` return 503.
 
 ```bash
 docker compose -p multi-tenant-agentic-rag --env-file .env up -d
@@ -54,7 +55,7 @@ uv sync --locked
 uv run --env-file .env python -m src.main
 ```
 
-The API listens on `http://127.0.0.1:8000`, and the schema is applied at startup:
+The API listens on `http://127.0.0.1:8000`, and startup fails unless the database is at the migrated revision (`docker compose up` runs the `migrate` job first):
 
 - `GET /health` reports which providers are configured.
 - `POST /ingest` takes a multipart `file` (.pdf, .xlsx, .docx or .txt) and `Authorization: Bearer <token>`.

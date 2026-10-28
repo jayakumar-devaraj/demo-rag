@@ -10,7 +10,7 @@
 
   You chose the providers: Groq primary, OpenAI fallback, local embeddings.
 - **Rename detection is by page-hash overlap.** A renamed file that shares no unchanged page with its previous version is treated as a new document, so its old version stays until it is deleted explicitly.
-- **Embedding dimension is fixed at 384** in `schema.sql`; changing providers may require a migration.
+- **Embedding dimension is fixed at 384** in the baseline migration (`migrations/baseline_schema.sql`); changing providers may require a migration.
 - **Resolved during Task 4:** connections now open with `autocommit=True`. Before this fix, writes from Tasks 1–3 were savepoints that were rolled back when the connection closed. Tests had missed it because they read back on the same connection. A regression test now reads on a fresh connection.
 - **Open `VERIFY:` markers: one left.** `src/utils/observability.py` (the Langfuse callback) needs a running Langfuse and keys. The `src/main.py` marker went away when PR #15 rewrote the provider wiring. The `src/eval/triad.py` marker was removed after live Ragas scoring passed. The LangGraph checkpointing `VERIFY:` raised in `design_dialogue.md` doesn't apply, because the graph uses no checkpointer.
 - **Planning miss: reserve under-used.** Phase 2.5 ran out of work at 22:27 CDT, with about 67 minutes left before the 23:34 deadline, 47 of them above the 20-minute Phase 3 floor. Every remaining limitation needs credentials or a design decision. The plan overestimated Tasks 1–4 (74 minutes estimated; they took about 21, 22:01–22:16 by the clock) and assumed live-model verification would be possible.

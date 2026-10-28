@@ -58,6 +58,7 @@ uv run --env-file .env python -m src.main
 The API listens on `http://127.0.0.1:8000`, and startup fails unless the database is at the migrated revision (`docker compose up` runs the `migrate` job first):
 
 - `GET /health` reports which providers are configured.
+- `GET /audit` returns the caller's own tenant audit trail, newest first (`limit`, `before_id`, `action`); it never contains question or document text.
 - `POST /ingest` takes a multipart `file` (.pdf, .xlsx, .docx or .txt) and `Authorization: Bearer <token>`.
 - `POST /chat` takes `{"question": "..."}` with the same header. The tenant comes only from the token.
 - `POST /v1/retrieve` takes the same body and header and returns the retrieved passages without writing an answer. Send `X-Timeout-Ms` to set a deadline. The contract is [`docs/openapi-v1.json`](docs/openapi-v1.json); regenerate it with `uv run python -m src.routers.contract`.

@@ -65,6 +65,16 @@ def test_provider_quota_error_is_503_not_500(monkeypatch):
 class _NoDbConn:
     """TEST DOUBLE: connection whose lookups find nothing, so ingest proceeds to embedding."""
 
+    def transaction(self):
+        class _Tx:
+            async def __aenter__(self):
+                return None
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Tx()
+
     async def execute(self, *args, **kwargs):
         class _Cur:
             async def fetchone(self):

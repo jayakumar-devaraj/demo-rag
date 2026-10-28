@@ -10,10 +10,11 @@ from typing import Annotated, Any
 import groq
 import openai
 import psycopg
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from src.db.audit import Action, AuditEntry, list_audit, record_audit
 from src.db.connection import connect, require_schema_revision
 from src.eval.triad import TriadScorer, TriadScores, numeric_groundedness
 from src.ingestion.pipeline import Embedder, IngestResult, ingest_file
@@ -21,7 +22,14 @@ from src.ingestion.workers import UnsupportedFormatError, worker_for
 from src.orchestration.graph import build_graph
 from src.retrieval.hybrid import ParentSection, retrieve
 from src.utils.auth import AuthError, Session, authenticate
-from src.utils.observability import install_request_id_logging, request_id, resolve_request_id, trace_callbacks
+from src.utils.observability import (
+    install_request_id_logging,
+    request_id,
+    resolve_request_id,
+    resolve_traceparent,
+    trace_callbacks,
+    traceparent,
+)
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +85,13 @@ class RetrieveResponse(BaseModel):
     attempts: int
 
 
+class AuditPage(BaseModel):
+    """One page of the caller's tenant audit trail, newest first; pass `next_before_id` back to continue."""
+
+    entries: list[AuditEntry]
+    next_before_id: int | None
+
+
 class ErrorBody(BaseModel):
     """Body of every handled error response."""
 
@@ -114,6 +129,14 @@ async def _connect() -> psycopg.AsyncConnection:
         raise HTTPException(503, "database unavailable") from exc
 
 
+async def _audit_failure(conn: psycopg.AsyncConnection, session: Session, action: Action, exc: Exception) -> None:
+    """Record that an authenticated request failed; this must never mask the failure being reported."""
+    try:
+        await record_audit(conn, session, action, "error", detail={"error": type(exc).__name__})
+    except psycopg.Error:
+        log.error("audit_error_not_recorded", extra={"action": action, "tenant_id": session.tenant_id})
+
+
 @router.post("/ingest", response_model=IngestResult)
 async def ingest(file: UploadFile, session: Annotated[Session, Depends(get_session)],
                  services: Annotated[Services, Depends(_services)]) -> IngestResult:
@@ -128,13 +151,22 @@ async def ingest(file: UploadFile, session: Annotated[Session, Depends(get_sessi
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "file too large")
     conn = await _connect()
+    filename = file.filename or "upload"
     try:
-        return await ingest_file(conn, services.embedder, session.tenant_id, file.filename or "upload", data)
+        # One transaction: the document's pages and its audit row commit or roll back together.
+        async with conn.transaction():
+            result = await ingest_file(conn, services.embedder, session.tenant_id, filename, data)
+            await record_audit(conn, session, "ingest", "ok", doc_key=result.doc_key,
+                               detail={"filename": filename, "units": len(result.units),
+                                       "purged_pages": result.purged_pages})
+        return result
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
     except PROVIDER_ERRORS as exc:
+        await _audit_failure(conn, session, "ingest", exc)
         raise _provider_down(exc) from exc
     except (ValueError, KeyError) as exc:  # unparseable file content from the caller
+        await _audit_failure(conn, session, "ingest", exc)
         raise HTTPException(422, f"could not parse file: {type(exc).__name__}") from exc
     finally:
         await conn.close()
@@ -154,11 +186,17 @@ async def chat(body: ChatRequest, session: Annotated[Session, Depends(get_sessio
         graph = build_graph(bound_retriever, services.llm)
         state = await graph.ainvoke({"question": body.question, "pending_queries": [body.question]},
                                     config={"callbacks": trace_callbacks()})
+        # No audit row, no answer: a failed insert here fails the request instead of releasing unrecorded data.
+        await record_audit(conn, session, "chat", "ok", detail={
+            "attempts": state["attempts"], "queries": len(state["queries_run"]),
+            "sections": len(state["sections"]), "insufficient": state["answer"].insufficient})
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
     except TimeoutError as exc:
+        await _audit_failure(conn, session, "chat", exc)
         raise HTTPException(504, "model call timed out") from exc
     except PROVIDER_ERRORS as exc:
+        await _audit_failure(conn, session, "chat", exc)
         raise _provider_down(exc) from exc
     finally:
         await conn.close()
@@ -202,19 +240,40 @@ async def retrieve_context(
         async with asyncio.timeout(timeout_s):
             state = await graph.ainvoke({"question": body.question, "pending_queries": [body.question]},
                                         config={"callbacks": trace_callbacks()})
+        insufficient = not state["verdict"].sufficient
+        await record_audit(conn, session, "retrieve", "ok", detail={
+            "attempts": state["attempts"], "queries": len(state["queries_run"]),
+            "sections": 0 if insufficient else len(state["sections"]), "insufficient": insufficient})
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
     except (TimeoutError, *PROVIDER_TIMEOUTS) as exc:
+        await _audit_failure(conn, session, "retrieve", exc)
         raise HTTPException(504, "model call timed out") from exc
     except PROVIDER_ERRORS as exc:
+        await _audit_failure(conn, session, "retrieve", exc)
         raise _provider_down(exc) from exc
     finally:
         await conn.close()
-    insufficient = not state["verdict"].sufficient
     log.info("retrieve_answered", extra={"tenant_id": session.tenant_id, "attempts": state["attempts"],
                                          "insufficient": insufficient, "sections": len(state["sections"])})
     return RetrieveResponse(sections=[] if insufficient else state["sections"], insufficient=insufficient,
                             queries_run=state["queries_run"], attempts=state["attempts"])
+
+
+@router.get("/audit", response_model=AuditPage)
+async def audit_trail(session: Annotated[Session, Depends(get_session)],
+                      limit: Annotated[int, Query(ge=1, le=200)] = 50,
+                      before_id: Annotated[int | None, Query(ge=1)] = None,
+                      action: Action | None = None) -> AuditPage:
+    """The caller's own tenant audit trail, newest first. The tenant comes only from the token."""
+    conn = await _connect()
+    try:
+        entries = await list_audit(conn, session.tenant_id, limit, before_id, action)
+    except psycopg.OperationalError as exc:
+        raise HTTPException(503, "database unavailable") from exc
+    finally:
+        await conn.close()
+    return AuditPage(entries=entries, next_before_id=entries[-1].id if len(entries) == limit else None)
 
 
 @router.get("/health")
@@ -244,9 +303,11 @@ def create_app(services: Services) -> FastAPI:
         """Bind one request id to every log line of this request and echo it as X-Request-ID."""
         rid = resolve_request_id(request.headers.get("x-request-id"))
         token = request_id.set(rid)
+        tp_token = traceparent.set(resolve_traceparent(request.headers.get("traceparent")))
         try:
             response = await call_next(request)
         finally:
+            traceparent.reset(tp_token)
             request_id.reset(token)
         response.headers["X-Request-ID"] = rid
         return response

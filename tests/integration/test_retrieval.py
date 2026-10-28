@@ -14,7 +14,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_query_never_returns_another_tenants_rows(conn):
-    a, b = Session(tenant_id=f"a-{uuid.uuid4().hex[:8]}"), Session(tenant_id=f"b-{uuid.uuid4().hex[:8]}")
+    a, b = Session(tenant_id=f"a-{uuid.uuid4().hex[:8]}", subject="test"), Session(tenant_id=f"b-{uuid.uuid4().hex[:8]}", subject="test")
     emb = FakeEmbedder()
     shared = [["Serial", "Owner"], ["SN-4471", "finance"]]
     run(ingest_file(conn, emb, a.tenant_id, "assets.xlsx", make_xlsx({"S": shared + [["SN-1", "tenant-a-only"]]})))
@@ -30,7 +30,7 @@ def test_exact_identifier_found_and_parent_table_reassembled(conn, tenant):
     emb = FakeEmbedder()
     rows = [["Invoice", "Amount"]] + [[f"INV-{i:04d}", i * 10] for i in range(80)]  # > 1 chunk per tab
     run(ingest_file(conn, emb, tenant, "ledger.xlsx", make_xlsx({"Ledger": rows, "Notes": [["n"], ["misc"]]})))
-    sections = run(retrieve(conn, emb, Session(tenant_id=tenant), "amount for INV-0072"))
+    sections = run(retrieve(conn, emb, Session(tenant_id=tenant, subject="test"), "amount for INV-0072"))
     top = sections[0]
     assert top.page_key == "tab:Ledger"
     assert "| 74 | INV-0072 | 720 |" in top.markdown  # Excel row 74 carries the matched row

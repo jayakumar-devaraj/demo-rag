@@ -53,7 +53,7 @@ def client(monkeypatch):
     monkeypatch.setenv("TENANT_TOKENS", "tok-a:tenant-a")
     tenants: list[str] = []
 
-    def make(retrieve=None, raise_server_exceptions=True, **services) -> tuple[TestClient, list[str]]:
+    def make(retrieve=None, raise_server_exceptions=True, audit=None, **services) -> tuple[TestClient, list[str]]:
         async def default_retrieve(conn, embedder, session, query):
             tenants.append(session.tenant_id)
             return [_section(1)]
@@ -61,12 +61,17 @@ def client(monkeypatch):
         async def connect():
             return _Conn()
 
+        async def record_audit(conn, session, action, outcome, doc_key=None, detail=None):
+            make.audits.append((session.tenant_id, action, outcome, detail))
+
         monkeypatch.setattr("src.routers.api._connect", connect)
+        monkeypatch.setattr("src.routers.api.record_audit", audit or record_audit)
         monkeypatch.setattr("src.routers.api.retrieve", retrieve or default_retrieve)
         base = {"embedder": FakeEmbedder(), "llm": ScriptedLLM(), "triad": None}
         app = create_app(Services(**(base | services)))
         return TestClient(app, raise_server_exceptions=raise_server_exceptions), tenants
 
+    make.audits = []
     return make
 
 
@@ -102,6 +107,31 @@ def test_sufficient_context_returns_sections_and_writes_no_answer(client):
     assert r.status_code == 200
     assert r.json() == {"sections": [_section(1).model_dump()], "insufficient": False,
                         "queries_run": [BODY["question"]], "attempts": 1}
+
+
+def test_successful_retrieve_is_audited_without_question_text(client):
+    llm = ScriptedLLM(SufficiencyVerdict=[SufficiencyVerdict(sufficient=True)])
+    c, _ = client(llm=llm)
+    assert c.post("/v1/retrieve", json=BODY, headers=AUTH).status_code == 200
+    assert client.audits == [("tenant-a", "retrieve", "ok",
+                              {"attempts": 1, "queries": 1, "sections": 1, "insufficient": False})]
+    assert BODY["question"] not in str(client.audits)
+
+
+def test_provider_failure_is_audited_as_error(client):
+    c, _ = client(llm=_RaisingLLM(_provider_error(openai.RateLimitError, 429)))
+    assert c.post("/v1/retrieve", json=BODY, headers=AUTH).status_code == 503
+    assert client.audits == [("tenant-a", "retrieve", "error", {"error": "RateLimitError"})]
+
+
+def test_no_audit_row_means_no_data_is_released(client):
+    async def failing_audit(conn, session, action, outcome, doc_key=None, detail=None):
+        raise psycopg.errors.InsufficientPrivilege("denied")
+
+    llm = ScriptedLLM(SufficiencyVerdict=[SufficiencyVerdict(sufficient=True)])
+    c, _ = client(llm=llm, audit=failing_audit, raise_server_exceptions=False)
+    r = c.post("/v1/retrieve", json=BODY, headers=AUTH)
+    assert r.status_code == 500 and "sections" not in r.text
 
 
 def test_insufficient_after_max_attempts_returns_no_sections(client):

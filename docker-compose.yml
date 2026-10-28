@@ -5,23 +5,39 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set in .env}
+      APP_DB_USER: ${APP_DB_USER:?set in .env}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set in .env}
     ports:
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
-      - ./src/db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./deploy/db/001_app_role.sh:/docker-entrypoint-initdb.d/001_app_role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 2s
       retries: 30
 
+  migrate:
+    build:
+      context: .
+      target: migrate
+    image: ghcr.io/jayakumar-devaraj/multi-tenant-agentic-rag-migrate:${RAG_API_TAG:-dev}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://${POSTGRES_USER:?set in .env}:${POSTGRES_PASSWORD:?set in .env}@db:5432/${POSTGRES_DB:?set in .env}
+      APP_DB_ROLE: ${APP_DB_USER:?set in .env}
+    restart: "no"
   rag-api:
     build: .
     image: ghcr.io/jayakumar-devaraj/multi-tenant-agentic-rag:${RAG_API_TAG:-dev}
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:?set in .env}:${POSTGRES_PASSWORD:?set in .env}@db:5432/${POSTGRES_DB:?set in .env}
+      DATABASE_URL: postgresql://${APP_DB_USER:?set in .env}:${APP_DB_PASSWORD:?set in .env}@db:5432/${POSTGRES_DB:?set in .env}
       TENANT_TOKENS: ${TENANT_TOKENS:?set in .env}
       FASTEMBED_MODEL: ${FASTEMBED_MODEL:-BAAI/bge-small-en-v1.5}
       RETRIEVE_LLM_MAX_RETRIES: ${RETRIEVE_LLM_MAX_RETRIES:-0}

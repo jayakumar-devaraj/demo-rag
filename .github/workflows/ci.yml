@@ -29,3 +29,9 @@ jobs:
           version: "0.11.19"
       - run: uv sync --locked
       - run: uv run pytest -q -p no:warnings --cov=src --cov-report=term-missing
+      - name: Build the migrate image
+        run: docker build --target migrate -t migrate-check .
+      - name: Run the migrate image against a scratch database
+        run: |
+          docker exec $(docker ps -qf ancestor=pgvector/pgvector:pg16) psql -U rag -d rag -c "CREATE DATABASE migrate_check"
+          docker run --rm --network host -e MIGRATION_DATABASE_URL=postgresql://rag@localhost:5434/migrate_check migrate-check

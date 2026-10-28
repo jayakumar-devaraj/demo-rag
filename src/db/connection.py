@@ -3,14 +3,14 @@
 import asyncio
 import os
 from collections.abc import Coroutine
-from pathlib import Path
 from typing import Any
 
 import psycopg
 
-SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 EMBEDDING_DIM = 384
 CONNECT_TIMEOUT_S = 5
+# The Alembic head this code was written against; a unit test keeps it equal to migrations/versions.
+EXPECTED_SCHEMA_REVISION = "0002"
 
 
 def database_url() -> str:
@@ -31,10 +31,16 @@ async def connect() -> psycopg.AsyncConnection:
     return await psycopg.AsyncConnection.connect(database_url(), connect_timeout=CONNECT_TIMEOUT_S, autocommit=True)
 
 
-async def apply_schema(conn: psycopg.AsyncConnection) -> None:
-    """Apply the idempotent schema script in one transaction."""
-    async with conn.transaction():
-        await conn.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
+async def require_schema_revision(conn: psycopg.AsyncConnection) -> None:
+    """Fail startup unless the database is at the revision this code expects (the API never migrates)."""
+    try:
+        cur = await conn.execute("SELECT version_num FROM alembic_version")
+    except psycopg.errors.UndefinedTable:
+        raise RuntimeError("database is not migrated: run the migrate job (alembic upgrade head)") from None
+    rows = await cur.fetchall()
+    found = [r[0] for r in rows]
+    if found != [EXPECTED_SCHEMA_REVISION]:
+        raise RuntimeError(f"schema revision {found} != expected {EXPECTED_SCHEMA_REVISION}: run the migrate job")
 
 
 def run[T](coro: Coroutine[Any, Any, T]) -> T:

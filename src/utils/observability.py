@@ -14,6 +14,14 @@ request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _base_factory = logging.getLogRecordFactory()
 
+traceparent: ContextVar[str | None] = ContextVar("traceparent", default=None)
+_VALID_TRACEPARENT = re.compile(r"^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$")
+
+
+def resolve_traceparent(incoming: str | None) -> str | None:
+    """Keep a caller's W3C traceparent only if it is well formed; it is stored in the audit trail."""
+    return incoming if incoming and _VALID_TRACEPARENT.match(incoming) else None
+
 
 def resolve_request_id(incoming: str | None) -> str:
     """Accept a caller's X-Request-ID if it is short and safe to log; otherwise mint a new one."""

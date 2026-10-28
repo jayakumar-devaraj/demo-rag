@@ -163,6 +163,10 @@ with `max_retries=2`.
 - **Runtime audit trail vs. build record:** the application logs are the runtime trail.
   `AI_ORCHESTRATION.md` records only the build process.
 
+### Audit trail
+
+Every authenticated `/ingest`, `/v1/retrieve` and `/chat` writes one `audit_log` row: tenant, subject (a fingerprint of the token), action, document key, outcome, `X-Request-ID`, a well-formed `traceparent`, and counts only (never question or document text). An ingest runs in one transaction with its audit row, so the document and its record commit or roll back together; a failed ingest leaves no partial document. For retrieve and chat the row is written before the response is released, and if it cannot be written the request fails (500, or 503 when the database is unreachable) and no data is returned. Failures after authentication (provider errors, timeouts, unparseable files) add an `error` row on a best-effort basis; if even that cannot be written, `audit_error_not_recorded` is logged. The application role can only `SELECT` and `INSERT` on the table. `GET /audit` reads the caller's own tenant, scoped in SQL by the token's tenant.
+
 ## 7. Key trade-offs
 
 | Decision | Chosen | Alternative | Why |

@@ -1,0 +1,9 @@
+{
+  "tests": 129,
+  "integration_tests": 36,
+  "coverage": {
+    "percent": 91,
+    "statements": 690,
+    "source": "Coverage measured locally on 2026-09-24 at the first wrap-up (56 tests); stale, replaced by the CI report after the last code change:"
+  }
+}

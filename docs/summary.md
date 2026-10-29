@@ -18,10 +18,27 @@ plain text. Each organisation (tenant) can only ever search its own documents. T
 - **Scores every answer** on three quality measures: were the right documents found, is the answer
   supported by them, and does it address the question. The scores are logged.
 
-It was built in about an hour inside a two-hour window. There are 56 automated tests (91% of the code
-exercised), and they run automatically on every change. It has also been verified end to end against a
-real AI model (Groq): all three required demonstration scenarios produced correct, cited answers, and
-every answer was scored for quality.
+- **Serves other applications.** `POST /v1/retrieve` returns the passages that answer a question,
+  without writing an answer, so the chatbot can compose its own reply. It takes the caller's deadline.
+- **Keeps customers apart twice.** Every query is limited to the caller's organisation in the search
+  itself, and the database enforces the same rule, so a missed filter in the code cannot leak data.
+- **Accepts signed tokens** from a company identity provider, with separate rights to search and to
+  upload; the old fixed token list still works until it is switched off.
+- **Keeps a durable record of use.** Each upload, search and question writes an audit row, and an
+  upload and its record succeed or fail together. A search is never returned without its record.
+
+The first version was built on 2026-09-24 in about an hour inside a two-hour window and verified end to
+end against a real AI model (Groq): all three demonstration scenarios gave correct, cited answers and
+every answer was scored for quality. The retrieval endpoint, container image, database migrations,
+audit trail, row-level security and signed tokens were added from 2026-10-25 to 2026-10-29.
+
+**Evidence.** The figures below are generated from the repository by `scripts/gen_figures.py`, and CI
+fails when they drift.
+
+<!-- figures:start -->
+- **Tests collected:** 129 (of which 36 need the real Postgres with pgvector); calls to real model providers are a separate, opt-in `live` set.
+- **Coverage:** 91 % of 690 statements. Report header: "Coverage measured locally on 2026-09-24 at the first wrap-up (56 tests); stale, replaced by the CI report after the last code change".
+<!-- figures:end -->
 
 ## The most important trade-off
 
@@ -33,12 +50,14 @@ does not happen at all. At this stage, correctness was worth more than scale.
 
 ## Remaining work, in priority order
 
-1. **Verify monitoring (tracing) against a live Langfuse server.** It's wired in, but it needs a
-   running Langfuse instance and access keys.
-2. **Verify the backup AI provider.** OpenAI is configured as the fallback if Groq is unavailable, but
-   that account currently has no credit, so the fallback hasn't been exercised live.
-3. **Improve PDF layout handling** beyond automatic table detection. This was cut for time.
-4. **Replace the demo login** (a fixed list of access tokens) with the company's identity provider.
+1. **Run it against a real identity provider.** Signed-token checks are tested with generated keys and
+   a local key endpoint only, and the fixed token list is still accepted by default.
+2. **Verify monitoring (Langfuse) and the backup AI provider (OpenAI) live.** Both are wired in but
+   have never been exercised against a real service.
+3. **Limits and retention.** There are no per-customer rate limits or quotas, and the audit table has
+   no partitioning or retention job.
+4. **Improve PDF layout handling** beyond automatic table detection. This was cut for time.
 5. **Plan for scale** if document volume grows past roughly a million fragments.
+6. **Add a deployment target** (the image is published, but nothing deploys it).
 
 Details are in `docs/known_limitations.md`.

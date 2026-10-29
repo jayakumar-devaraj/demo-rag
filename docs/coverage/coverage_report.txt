@@ -1,3 +1,4 @@
+Coverage measured locally on 2026-09-24 at the first wrap-up (56 tests); stale, replaced by the CI report after the last code change:
 ........................................................                 [100%]
 =============================== tests coverage ================================
 ______________ coverage: platform win32, python 3.13.13-final-0 _______________

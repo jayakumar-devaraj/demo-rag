@@ -28,7 +28,16 @@ jobs:
         with:
           version: "0.11.19"
       - run: uv sync --locked
-      - run: uv run pytest -q -p no:warnings --cov=src --cov-report=term-missing
+      - name: Tests with coverage
+        run: |
+          { echo "Coverage at ${GITHUB_SHA::7} from CI run ${GITHUB_RUN_ID} (all tests except live):"; uv run pytest -q -p no:warnings --cov=src --cov-report=term-missing; } | tee coverage.txt
+          test ${PIPESTATUS[0]} -eq 0
+      - name: Figures in the docs match the code
+        run: uv run python scripts/gen_figures.py --check
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: coverage-report
+          path: coverage.txt
       - name: Build the migrate image
         run: docker build --target migrate -t migrate-check .
       - name: Run the migrate image against a scratch database

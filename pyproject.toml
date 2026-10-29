@@ -15,6 +15,7 @@ dependencies = [
     "pgvector==0.5.0",
     "psycopg[binary]==3.3.6",
     "pydantic==2.13.5",
+    "pyjwt[crypto]==2.15.1",
     "pymupdf==1.28.2",
     "python-docx==1.2.0",
     "python-multipart==0.0.32",

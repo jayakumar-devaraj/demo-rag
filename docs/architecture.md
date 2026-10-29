@@ -150,6 +150,9 @@ scored. Tests cover overlapping content across two tenants at both the SQL and H
 | Empty or oversized question, or `X-Timeout-Ms` outside 1 to 120000 | 422 | `/v1/retrieve` |
 | Caller's deadline elapsed, or model call timed out (including a provider-client timeout) | 504 | `/v1/retrieve` |
 | Audit row cannot be written | 500, nothing returned; 503 if the database is unreachable | `/ingest`, `/v1/retrieve`, `/chat` |
+| Token is a JWT that fails validation (signature, algorithm, issuer, audience, expiry, no tenant claim) | 401 | `get_session` |
+| Token valid but lacks the endpoint's scope (`rag:query` or `rag:ingest`) | 403 | `require_scope` |
+| OIDC key set cannot be fetched | 503 `identity provider unavailable`, `idp_unavailable` log; no static-token fallback | `get_session` |
 
 Timeouts: DB connect 5 s, each LLM call 60 s, the whole triad 90 s, provider client `timeout=60`
 with `max_retries=2`.

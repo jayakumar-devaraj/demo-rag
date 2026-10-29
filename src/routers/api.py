@@ -21,7 +21,14 @@ from src.ingestion.pipeline import Embedder, IngestResult, ingest_file
 from src.ingestion.workers import UnsupportedFormatError, worker_for
 from src.orchestration.graph import build_graph
 from src.retrieval.hybrid import ParentSection, retrieve
-from src.utils.auth import AuthError, Session, authenticate
+from src.utils.auth import (
+    SCOPE_INGEST,
+    SCOPE_QUERY,
+    AuthError,
+    IdentityProviderUnavailable,
+    Session,
+    authenticate,
+)
 from src.utils.observability import (
     install_request_id_logging,
     request_id,
@@ -109,6 +116,23 @@ def get_session(creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_b
         return authenticate(creds.credentials if creds else None)
     except AuthError as exc:
         raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
+    except IdentityProviderUnavailable as exc:
+        raise HTTPException(503, "identity provider unavailable") from exc
+
+
+def require_scope(scope: str) -> Any:
+    """A dependency that authenticates, then requires `scope` (403 when the token lacks it)."""
+
+    def dependency(session: Annotated[Session, Depends(get_session)]) -> Session:
+        if scope not in session.scopes:
+            raise HTTPException(403, f"token lacks the {scope} scope")
+        return session
+
+    return dependency
+
+
+query_session = require_scope(SCOPE_QUERY)
+ingest_session = require_scope(SCOPE_INGEST)
 
 
 def _provider_down(exc: Exception) -> HTTPException:
@@ -138,7 +162,7 @@ async def _audit_failure(conn: psycopg.AsyncConnection, session: Session, action
 
 
 @router.post("/ingest", response_model=IngestResult)
-async def ingest(file: UploadFile, session: Annotated[Session, Depends(get_session)],
+async def ingest(file: UploadFile, session: Annotated[Session, Depends(ingest_session)],
                  services: Annotated[Services, Depends(_services)]) -> IngestResult:
     """Ingest one document into the caller's tenant."""
     if services.embedder is None:
@@ -173,7 +197,7 @@ async def ingest(file: UploadFile, session: Annotated[Session, Depends(get_sessi
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, session: Annotated[Session, Depends(get_session)],
+async def chat(body: ChatRequest, session: Annotated[Session, Depends(query_session)],
                services: Annotated[Services, Depends(_services)]) -> ChatResponse:
     """Answer a question from the caller's tenant only, via the self-correcting graph."""
     if services.llm is None or services.embedder is None:
@@ -221,7 +245,7 @@ async def chat(body: ChatRequest, session: Annotated[Session, Depends(get_sessio
     500: {"description": "Unexpected server error (plain-text body)."},
 })
 async def retrieve_context(
-    body: RetrieveRequest, session: Annotated[Session, Depends(get_session)],
+    body: RetrieveRequest, session: Annotated[Session, Depends(query_session)],
     services: Annotated[Services, Depends(_services)],
     x_timeout_ms: Annotated[int | None, Header(ge=1, le=RETRIEVE_MAX_TIMEOUT_MS, description=(
         "Caller's deadline in milliseconds for the whole call. Absent: the server default applies."))] = None,
@@ -261,7 +285,7 @@ async def retrieve_context(
 
 
 @router.get("/audit", response_model=AuditPage)
-async def audit_trail(session: Annotated[Session, Depends(get_session)],
+async def audit_trail(session: Annotated[Session, Depends(query_session)],
                       limit: Annotated[int, Query(ge=1, le=200)] = 50,
                       before_id: Annotated[int | None, Query(ge=1)] = None,
                       action: Action | None = None) -> AuditPage:

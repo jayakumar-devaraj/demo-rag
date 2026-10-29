@@ -86,7 +86,7 @@ class _NoDbConn:
         return None
 
 
-async def _fake_connect():
+async def _fake_connect(*_):
     return _NoDbConn()
 
 

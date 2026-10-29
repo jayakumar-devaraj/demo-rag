@@ -93,3 +93,19 @@ Points 1–2 of Round 1 stand. Points 3–6 are accepted, with these answers to 
   release in the order RAG first, chatbot second, with both token types accepted during the overlap.
 - This record changes no running behaviour; implementation is split into separate pull requests per
   decision after Round 2.
+
+## Amendment (2026-10-28, step 3: row-level security)
+
+Round 1 proposed `SET LOCAL app.tenant_id` inside a transaction per request. As built, the tenant is
+bound with `set_config('app.tenant_id', <tenant>, false)` (session level) right after the connection
+opens (`connect(tenant_id)` in `src/db/connection.py`). Reason: connections are autocommit and retrieval
+runs many statements across LLM calls; one request-long transaction would hold a connection and
+snapshot open for the whole model call. This is safe only because each request opens and closes its own
+connection; if connections are ever pooled, the setting must be reset on release.
+
+Policies (migration 0003): `page_registry` and `chunks` are `ENABLE`d and `FORCE`d with a policy that
+compares `tenant_id` to `current_setting('app.tenant_id', true)` for both reads and writes; `audit_log`
+has a `SELECT` policy and an `INSERT` policy. An unbound connection compares against NULL and sees no
+rows. The API role must never be a superuser or have `BYPASSRLS`; superusers, including the compose
+owner role used by the migrate job, bypass the policies. `docs/reports/rls-benchmark-2026-10-28.md`
+records the check that the policies do not change the plan or add measurable latency at 20,000 chunks.

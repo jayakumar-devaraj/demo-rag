@@ -109,3 +109,17 @@ has a `SELECT` policy and an `INSERT` policy. An unbound connection compares aga
 rows. The API role must never be a superuser or have `BYPASSRLS`; superusers, including the compose
 owner role used by the migrate job, bypass the policies. `docs/reports/rls-benchmark-2026-10-28.md`
 records the check that the policies do not change the plan or add measurable latency at 20,000 chunks.
+
+## Amendment (2026-10-29, step 4: JWT validation)
+
+Implemented in `src/utils/auth.py` with PyJWT. A bearer token with three dot-separated parts is
+validated as a JWT whenever `OIDC_ISSUERS`, `OIDC_AUDIENCE` and `OIDC_JWKS_URL` are set: asymmetric
+signature (`OIDC_ALGORITHMS`, default RS256 and ES256; `none` and any HMAC algorithm are refused when
+the settings load), issuer in the allow-list, audience, `exp`, `sub` and a non-empty `tenant` claim.
+The `scope` (or `scp`) claim yields `rag:query` and `rag:ingest`; `/ingest` needs the second, the other
+endpoints the first. Keys come from the JWKS URL through PyJWT's caching client (5 s timeout, 300 s
+cache). If they cannot be fetched the API answers 503 and does not try a static token. Static
+`TENANT_TOKENS` still work, with both scopes, until `ALLOW_STATIC_TOKENS=false`; removing them is a
+configuration change plus deleting the variable once the chatbot presents JWTs. Verified with generated
+keys and a real local JWKS endpoint over HTTP; no real identity provider (for example Keycloak) has been
+run against it.

@@ -37,7 +37,7 @@ fails when they drift.
 
 <!-- figures:start -->
 - **Tests collected:** 129 (of which 36 need the real Postgres with pgvector); calls to real model providers are a separate, opt-in `live` set.
-- **Coverage:** 91 % of 690 statements. Report header: "Coverage measured locally on 2026-09-24 at the first wrap-up (56 tests); stale, replaced by the CI report after the last code change".
+- **Coverage:** 92 % of 906 statements. Report header: "Coverage at 1a75804 from CI run 40926258798 (all tests except live)".
 <!-- figures:end -->
 
 ## The most important trade-off

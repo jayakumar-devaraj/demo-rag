@@ -32,6 +32,7 @@ Build-process record: one row per merge. Runtime audit trail is separate (applic
 | Refresh docs after /v1, fill CLAUDE.md section 9, check docs in CI | files changed (by path): docs 2, other 4, tests 1 | docs/refresh-after-v1 | #28 | 9c652407 |
 | Validate OIDC JWTs for tenant authentication (ADR 0002 step 4) | files changed (by path): code 2, docs 3, other 4, tests 1 | feat/jwt-validation | #29 | 9c652407 |
 | Generate summary figures from the repo and produce coverage in CI | files changed (by path): docs 3, other 2, tests 1 | docs/figures-and-coverage | #30 | 9c652407 |
+| Replace the coverage report with the CI report and log recent PRs | files changed (by path): docs 4 | docs/freeze-figures | #31 | 9c652407 |
 
 
 

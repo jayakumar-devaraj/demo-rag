@@ -11,7 +11,7 @@ is optional and external.
 
 ```mermaid
 flowchart LR
-    U["Client<br/>Bearer token"] -->|POST /ingest, POST /chat| API["FastAPI app<br/>src/routers/api.py"]
+    U["Client<br/>Bearer token"] -->|"POST /ingest, /chat, /v1/retrieve, GET /audit"| API["FastAPI app<br/>src/routers/api.py"]
     API -->|token → Session| AUTH["src/utils/auth.py<br/>TENANT_TOKENS"]
     API --> ING["Ingestion<br/>src/ingestion/"]
     API --> G["LangGraph loop<br/>src/orchestration/graph.py"]
@@ -146,10 +146,24 @@ scored. Tests cover overlapping content across two tenants at both the SQL and H
 | LLM call over 60 s | 504 | `/chat` |
 | A single triad metric fails | answer still returned; metric `null`, `triad_metric_failed` log | `RagasTriadScorer` |
 | Whole triad over 90 s or provider error | answer still returned with numeric groundedness only; `triad_unavailable` log | `/chat` |
-| Database unreachable at startup | startup fails loudly (lifespan) | `create_app` |
+| Database unreachable at startup, or not at the expected migration revision | startup fails loudly (lifespan) | `create_app`, `require_schema_revision` |
+| Empty or oversized question, or `X-Timeout-Ms` outside 1 to 120000 | 422 | `/v1/retrieve` |
+| Caller's deadline elapsed, or model call timed out (including a provider-client timeout) | 504 | `/v1/retrieve` |
+| Audit row cannot be written | 500, nothing returned; 503 if the database is unreachable | `/ingest`, `/v1/retrieve`, `/chat` |
 
 Timeouts: DB connect 5 s, each LLM call 60 s, the whole triad 90 s, provider client `timeout=60`
 with `max_retries=2`.
+
+### Retrieval-only endpoint (`POST /v1/retrieve`)
+
+The chatbot service needs the passages, not an answer (ADR 0001), so this endpoint runs the same
+retrieve, evaluate and re-query loop as `/chat` but stops at the first sufficient context instead of
+synthesizing (`build_graph(..., retrieve_only=True)`). It returns `{sections, insufficient,
+queries_run, attempts}`; when `insufficient` is true `sections` is empty, so a caller cannot answer
+from context the evaluator rejected. The tenant comes only from the bearer token. The caller owns
+retries: a second chat model is used with `RETRIEVE_LLM_MAX_RETRIES` (default 0, while `/chat` keeps
+2), and the caller's deadline arrives in `X-Timeout-Ms` (1 to 120000; 30 s when absent). The contract
+is `docs/openapi-v1.json`, checked against the generated document by a unit test.
 
 ## 6. Observability
 

@@ -1,19 +1,36 @@
 # AI Orchestration Log
 
 Build-process record: one row per merge. Runtime audit trail is separate (application logs).
+| task | generated (code/tests/docs) | branch | PR # | session |
+|---|---|---|---|---|
+| 0 — persist plan (+ Step A dialogue) | docs: master_plan, specs task-1..4, AI_ORCHESTRATION, known_limitations; design_dialogue append | plan/setup | #1 | f4dffdf7 |
+| 1 — schema + transactional repo | code: src/db/{schema.sql,connection.py,repository.py}, docker-compose, pyproject/uv.lock; tests: 3 unit + 4 integration (real Postgres); docs: README Tech Stack, CLAUDE.md committed | task-1-schema-repo | #2 | f4dffdf7 |
+| 2 — polymorphic ingestion | code: src/ingestion/{workers,chunking,pipeline}.py, repo rename/purge helpers; tests: 9 unit + 3 integration (real Postgres), test-double embedder; docs: README Tech Stack | task-2-polymorphic-ingestion | #3 | f4dffdf7 |
+| 3 — hybrid retrieval | code: src/retrieval/hybrid.py, src/utils/auth.py; tests: 8 unit + 2 integration (real Postgres: cross-tenant isolation, exact-ID recall, parent assembly); docs: README Tech Stack, .env.example | task-3-hybrid-retrieval | #4 | f4dffdf7 |
+| 4 — agentic loop + API (UNVERIFIED: live LLM/embedding/Ragas/Langfuse, no credentials) | code: src/agents/synthesis.py, src/orchestration/{state,graph}.py, src/eval/triad.py, src/routers/api.py, src/utils/observability.py, src/main.py, autocommit fix; tests: 13 unit + 2 integration (HTTP e2e, commit visibility); docs: README, known_limitations, .env.example | task-4-agentic-loop-api | #5 | f4dffdf7 |
+| H1 — CI | ci: .github/workflows/ci.yml (uv + pgvector service); code: schema provisioned at app startup (lifespan) after CI exposed it; tests: e2e runs lifespan; docs: README | hardening/ci | #6 | f4dffdf7 |
+| H2 — coverage | ci: --cov in workflow; tests: coverage report docs/coverage/coverage_report.txt (88%, 44 passed); deps: pytest-cov 7.1.0 | hardening/coverage | #7 | f4dffdf7 |
+| H3 — criteria tests | tests: triad scored/logged/returned (integration), JSON audit log + provider wiring (unit); coverage report refreshed (92%, 49 passed) | hardening/criteria-tests | #8 | f4dffdf7 |
+| H4 — reconcile | docs: master_plan/known_limitations corrected to match the build; VERIFY markers accounted for; planning miss logged | hardening/reconcile | #9 | f4dffdf7 |
+| wrap-up | docs: README Architecture/Quickstart/Local dev/Testing/CI, demo_script, summary, this narrative, known_limitations finalized | wrapup | #10 | f4dffdf7 |
+| chore — AGENTS.md | docs: AGENTS.md committed; 10 untracked empty scaffold stubs deleted locally (not in diff) | chore/agents-md-and-stub-cleanup | #11 | f4dffdf7 |
+| H5 — live verification attempt (BLOCKED: OpenAI 429 insufficient_quota) | tests: 3 live scenario tests (marker live, excluded by default), 2 regression tests; code: Ragas shim ordering fix, provider errors → 503; docs: README, known_limitations, coverage (92%, 51 passed) | hardening/live-llm-verification | #12 | f4dffdf7 |
+| docs — architecture | docs: docs/architecture.md (4 Mermaid diagrams, design sections, error table, trade-offs, scaling), README link; code: triad timeout/provider error no longer 500; tests: triad-timeout integration test (52 passed) | docs/architecture | #13 | f4dffdf7 |
+| obs — request ID | code: X-Request-ID middleware + ContextVar log-record factory; tests: echo/stamp + unsafe-ID replacement (54 passed); real-server smoke; docs: architecture, README | observability/request-id | #14 | f4dffdf7 |
+| docs — README description | docs: README project description; also records PR #15 (providers/groq-primary) as open and unmerged at the hard stop | docs/readme-description | #16 | f4dffdf7 |
+| providers — Groq primary + OpenAI fallback, fastembed | code: src/main.py FallbackLLM/ChatGroq/fastembed, Groq errors → 503, Ragas name adapter, triad strictness=1 + sequential metrics; tests: provider wiring + fallback unit tests, live scenarios 3 passed against Groq; default 56 passed (06038e1 message says 57 by mistake); docs: README, .env.example, known_limitations | providers/groq-primary | #15 | f4dffdf7 |
+| docs — live demo script | docs: demo_script.md rewritten around the live Groq run (3 passed, 79 s) with offline fallback (re-verified 5 passed) | docs/demo-live-groq | #17 | f4dffdf7 |
+| docs — eval prompt V2 | docs: docs/prompts/coding_challenge_eval_prompt_v2.md (snapshot rule, server-side provenance anchor, authorship rule, rubric-exposure spot-check, defect withholding, Scope section); V1 unchanged | docs/eval-prompt-v2 | #18 | 04c7cc23 |
+| docs — reconcile after live run | docs: known_limitations, summary, master_plan, narrative (PRs #11-#17), coverage refresh (56 passed, 91%); code: resolved Ragas VERIFY comment removed | docs/reconcile-after-live | #19 | f4dffdf7 |
+| Add POST /v1/retrieve (retrieval-only, caller deadline, lean retries) | files changed (by path): code 4, docs 2, other 4, tests 4 | feat/v1-retrieve | #20 | unrecorded |
+| Add rag-api Docker image, compose service and tag-triggered publish | files changed (by path): other 6 | feat/rag-api-image | #21 | unrecorded |
+| ADR 0002 round 1: cross-service auth, audit and contract with the chatbot | files changed (by path): docs 1 | docs/adr-0002-cross-service | #23 | 9c652407 |
+| ADR 0002 round 2: accept cross-service auth, audit and contract decisions | files changed (by path): docs 1 | docs/adr-0002-round2 | #24 | 9c652407 |
+| migrations + role split + audit_log (ADR 0002, step 1) | code: Alembic baseline + audit_log migration, owner/app role split, startup revision check, migrate image and compose job; tests: 1 unit + 4 integration (real Postgres: fresh install, adoption of an old database, least privilege, wrong revision); docs: README, architecture, limitations. Agent-Run: Claude Code session 9c652407-2cfd-4728-b39a-efcf5dfb4948 (from the session working-directory name). Test count 87 passed observed locally against compose Postgres; coverage 92% unit+integration | feat/db-migrations-audit | #25 | 9c652407 |
+| audit writes + GET /audit (ADR 0002, step 2) | code: src/db/audit.py, audit rows for ingest/retrieve/chat (ingest atomic with its row, reads fail closed), GET /audit, token-fingerprint subject, traceparent capture; tests: 2 + 3 unit, 4 integration on real Postgres (scoping, pagination, atomicity mutation-checked, whole flow as the non-owner role); docs: README, architecture, limitations. Agent-Run: Claude Code session 9c652407-2cfd-4728-b39a-efcf5dfb4948 (from the session working-directory name). Observed locally: 96 passed, 92% coverage | feat/audit-writes | #26 | 9c652407 |
+| row-level security (ADR 0002, step 3) | code: migration 0003 (FORCE RLS on page_registry/chunks/audit_log), connect(tenant_id), tenant bound on every API connection; tests: 11 integration on real Postgres as the non-owner role (no-tenant sees nothing, predicate-free queries confined, cross-tenant writes denied, cascade delete, mismatched session returns nothing); benchmark: tests/load/rls_benchmark.py + docs/reports/rls-benchmark-2026-10-28.md; docs: ADR 0002 amendment, README, architecture, limitations. Agent-Run: Claude Code session 9c652407-2cfd-4728-b39a-efcf5dfb4948 (from the session working-directory name). Observed locally: 107 passed, 92% coverage | feat/row-level-security | #27 | 9c652407 |
 
-| task | generated (code/tests/docs) | branch | PR # |
-|---|---|---|---|
-| 0 — persist plan (+ Step A dialogue) | docs: master_plan, specs task-1..4, AI_ORCHESTRATION, known_limitations; design_dialogue append | plan/setup | #1 |
-| 1 — schema + transactional repo | code: src/db/{schema.sql,connection.py,repository.py}, docker-compose, pyproject/uv.lock; tests: 3 unit + 4 integration (real Postgres); docs: README Tech Stack, CLAUDE.md committed | task-1-schema-repo | #2 |
-| 2 — polymorphic ingestion | code: src/ingestion/{workers,chunking,pipeline}.py, repo rename/purge helpers; tests: 9 unit + 3 integration (real Postgres), test-double embedder; docs: README Tech Stack | task-2-polymorphic-ingestion | #3 |
-| 3 — hybrid retrieval | code: src/retrieval/hybrid.py, src/utils/auth.py; tests: 8 unit + 2 integration (real Postgres: cross-tenant isolation, exact-ID recall, parent assembly); docs: README Tech Stack, .env.example | task-3-hybrid-retrieval | #4 |
-| 4 — agentic loop + API (UNVERIFIED: live LLM/embedding/Ragas/Langfuse, no credentials) | code: src/agents/synthesis.py, src/orchestration/{state,graph}.py, src/eval/triad.py, src/routers/api.py, src/utils/observability.py, src/main.py, autocommit fix; tests: 13 unit + 2 integration (HTTP e2e, commit visibility); docs: README, known_limitations, .env.example | task-4-agentic-loop-api | #5 |
-| H1 — CI | ci: .github/workflows/ci.yml (uv + pgvector service); code: schema provisioned at app startup (lifespan) after CI exposed it; tests: e2e runs lifespan; docs: README | hardening/ci | #6 |
-| H2 — coverage | ci: --cov in workflow; tests: coverage report docs/coverage/coverage_report.txt (88%, 44 passed); deps: pytest-cov 7.1.0 | hardening/coverage | #7 |
-| H3 — criteria tests | tests: triad scored/logged/returned (integration), JSON audit log + provider wiring (unit); coverage report refreshed (92%, 49 passed) | hardening/criteria-tests | #8 |
-| H4 — reconcile | docs: master_plan/known_limitations corrected to match the build; VERIFY markers accounted for; planning miss logged | hardening/reconcile | #9 |
-| wrap-up | docs: README Architecture/Quickstart/Local dev/Testing/CI, demo_script, summary, this narrative, known_limitations finalized | wrapup | #10 |
+
 
 ## Orchestration narrative
 
@@ -58,19 +75,10 @@ check, feature branch, tests against the real dependency, commit, PR, orchestrat
 **Wrap-up (22:27–).** README setup sections were verified from a fresh clone of `main` at `857fc00`:
 `uv sync --locked`, then 49 passed, then the server started and `/health` answered. The five
 demo-scenario tests were re-run (5 passed). The summary and demo script were added.
-| chore — AGENTS.md | docs: AGENTS.md committed; 10 untracked empty scaffold stubs deleted locally (not in diff) | chore/agents-md-and-stub-cleanup | #11 |
-| H5 — live verification attempt (BLOCKED: OpenAI 429 insufficient_quota) | tests: 3 live scenario tests (marker live, excluded by default), 2 regression tests; code: Ragas shim ordering fix, provider errors → 503; docs: README, known_limitations, coverage (92%, 51 passed) | hardening/live-llm-verification | #12 |
-| docs — architecture | docs: docs/architecture.md (4 Mermaid diagrams, design sections, error table, trade-offs, scaling), README link; code: triad timeout/provider error no longer 500; tests: triad-timeout integration test (52 passed) | docs/architecture | #13 |
-| obs — request ID | code: X-Request-ID middleware + ContextVar log-record factory; tests: echo/stamp + unsafe-ID replacement (54 passed); real-server smoke; docs: architecture, README | observability/request-id | #14 |
-| docs — README description | docs: README project description; also records PR #15 (providers/groq-primary) as open and unmerged at the hard stop | docs/readme-description | #16 |
-| providers — Groq primary + OpenAI fallback, fastembed | code: src/main.py FallbackLLM/ChatGroq/fastembed, Groq errors → 503, Ragas name adapter, triad strictness=1 + sequential metrics; tests: provider wiring + fallback unit tests, live scenarios 3 passed against Groq; default 56 passed (06038e1 message says 57 by mistake); docs: README, .env.example, known_limitations | providers/groq-primary | #15 |
-| docs — live demo script | docs: demo_script.md rewritten around the live Groq run (3 passed, 79 s) with offline fallback (re-verified 5 passed) | docs/demo-live-groq | #17 |
-| docs — eval prompt V2 | docs: docs/prompts/coding_challenge_eval_prompt_v2.md (snapshot rule, server-side provenance anchor, authorship rule, rubric-exposure spot-check, defect withholding, Scope section); V1 unchanged | docs/eval-prompt-v2 | #18 |
 
 ## Orchestration narrative: after wrap-up (22:32–23:31)
 
 Every step was requested by the lead in chat and followed the same branch → PR → row → merge loop.
-The table rows sit above this section; the rows added after the first narrative follow its end.
 
 **Housekeeping and first live attempt (22:33–22:42).**
 - `AGENTS.md` committed; ten empty untracked scaffold stubs deleted (row "chore — AGENTS.md", PR #11,
@@ -116,7 +124,17 @@ observability were covered. The agent answered with the concrete gaps, then:
 **Reconciliation (23:31).** This entry's PR removed the resolved Ragas `VERIFY:` marker and updated
 `known_limitations.md`, `master_plan.md` and `summary.md` to the post-live state. It also refreshed
 the coverage report: 56 passed, 91%.
-| docs — reconcile after live run | docs: known_limitations, summary, master_plan, narrative (PRs #11-#17), coverage refresh (56 passed, 91%); code: resolved Ragas VERIFY comment removed | docs/reconcile-after-live | #19 |
-| migrations + role split + audit_log (ADR 0002, step 1) | code: Alembic baseline + audit_log migration, owner/app role split, startup revision check, migrate image and compose job; tests: 1 unit + 4 integration (real Postgres: fresh install, adoption of an old database, least privilege, wrong revision); docs: README, architecture, limitations. Agent-Run: Claude Code session 9c652407-2cfd-4728-b39a-efcf5dfb4948 (from the session working-directory name). Test count 87 passed observed locally against compose Postgres; coverage 92% unit+integration | feat/db-migrations-audit | #25 |
-| audit writes + GET /audit (ADR 0002, step 2) | code: src/db/audit.py, audit rows for ingest/retrieve/chat (ingest atomic with its row, reads fail closed), GET /audit, token-fingerprint subject, traceparent capture; tests: 2 + 3 unit, 4 integration on real Postgres (scoping, pagination, atomicity mutation-checked, whole flow as the non-owner role); docs: README, architecture, limitations. Agent-Run: Claude Code session 9c652407-2cfd-4728-b39a-efcf5dfb4948 (from the session working-directory name). Observed locally: 96 passed, 92% coverage | feat/audit-writes | #26 |
-| row-level security (ADR 0002, step 3) | code: migration 0003 (FORCE RLS on page_registry/chunks/audit_log), connect(tenant_id), tenant bound on every API connection; tests: 11 integration on real Postgres as the non-owner role (no-tenant sees nothing, predicate-free queries confined, cross-tenant writes denied, cascade delete, mismatched session returns nothing); benchmark: tests/load/rls_benchmark.py + docs/reports/rls-benchmark-2026-10-28.md; docs: ADR 0002 amendment, README, architecture, limitations. Agent-Run: Claude Code session 9c652407-2cfd-4728-b39a-efcf5dfb4948 (from the session working-directory name). Observed locally: 107 passed, 92% coverage | feat/row-level-security | #27 |
+
+## Sessions and later work
+
+The `session` column is the transcript prefix whose `gh pr create` call produced the pull request,
+checked against the local Claude Code transcripts. `unrecorded` means no creating call was found, so
+none is inferred. PR 22 was closed without merging: it was superseded by #21, which carries the same
+Docker image and compose change.
+
+- **#20, #21 (2026-10-25):** `POST /v1/retrieve` for the chatbot service (ADR 0001) and the container
+  image with its tag-triggered publish workflow.
+- **#23, #24 (2026-10-28):** ADR 0002, the cross-service decisions with the chatbot (OIDC/JWT tenant
+  authentication, an append-only Postgres audit trail), proposed then accepted.
+- **#25, #26, #27 (2026-10-28):** migrations and a non-owner API role, audit rows and `GET /audit`, and
+  forced row-level security, each with real-Postgres tests.

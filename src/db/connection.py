@@ -2,13 +2,16 @@
 
 import asyncio
 import os
-from collections.abc import Coroutine
+from collections.abc import AsyncIterator, Coroutine
+from contextlib import asynccontextmanager
 from typing import Any
 
 import psycopg
+from psycopg_pool import AsyncConnectionPool
 
 EMBEDDING_DIM = 384
 CONNECT_TIMEOUT_S = 5
+POOL_MAX_SIZE = 10  # per API replica; Postgres allows 100 connections by default
 # The Alembic head this code was written against; a unit test keeps it equal to migrations/versions.
 EXPECTED_SCHEMA_REVISION = "0003"
 
@@ -26,7 +29,8 @@ async def connect(tenant_id: str | None = None) -> psycopg.AsyncConnection:
 
     The tenant is stored in the session setting `app.tenant_id`, which the row-level-security policies
     compare against (migration 0003). It is session-level, not SET LOCAL, because the connection is
-    autocommit and is closed at the end of the request; if connections are ever pooled, reset it on release.
+    autocommit and is closed by its caller. The API does not use this: it binds per transaction on pooled
+    connections (`tenant_transaction`).
 
     autocommit=True makes every `conn.transaction()` block a real BEGIN/COMMIT; without it the
     first statement opens an implicit transaction and those blocks degrade to savepoints that are
@@ -40,6 +44,26 @@ async def connect(tenant_id: str | None = None) -> psycopg.AsyncConnection:
             await conn.close()
             raise
     return conn
+
+
+def open_pool(url: str | None = None, max_size: int = POOL_MAX_SIZE) -> AsyncConnectionPool:
+    """An unopened pool of autocommit connections (the API opens it at startup); waits for a free one fail with
+    `PoolTimeout`, an `OperationalError`, after CONNECT_TIMEOUT_S."""
+    return AsyncConnectionPool(url or database_url(), min_size=1, max_size=max_size, timeout=CONNECT_TIMEOUT_S,
+                               kwargs={"autocommit": True, "connect_timeout": CONNECT_TIMEOUT_S}, open=False)
+
+
+@asynccontextmanager
+async def tenant_transaction(pool: AsyncConnectionPool, tenant_id: str) -> AsyncIterator[psycopg.AsyncConnection]:
+    """A pooled connection inside one transaction bound to `tenant_id` for the row-level-security policies.
+
+    The binding is transaction-local (`set_config(..., true)`), so it ends at COMMIT or ROLLBACK and the
+    connection's next borrower starts with no tenant, which sees no rows. Blocks opened with
+    `conn.transaction()` inside it are savepoints of this transaction.
+    """
+    async with pool.connection() as conn, conn.transaction():
+        await conn.execute("SELECT set_config('app.tenant_id', %s, true)", (tenant_id,))
+        yield conn
 
 
 async def require_schema_revision(conn: psycopg.AsyncConnection) -> None:

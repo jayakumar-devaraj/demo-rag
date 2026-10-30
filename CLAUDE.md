@@ -203,6 +203,7 @@ model output, and user turns.
 **Invariants a well-meaning change breaks** — each is here because the plausible cleanup silently
 destroys it:
 
+- **On pooled connections the tenant is bound per transaction (`set_config(..., true)` in `tenant_transaction`), never per session.** A session-level binding reads the same and survives into the next borrower of the connection, which then sees another tenant's rows.
 - **The tenant is never read from a request body, and isolation is enforced twice.** The `WHERE tenant_id` predicates and the row-level-security policies (`app.tenant_id`, bound by `connect(tenant_id)`) must both stay; removing the predicate "because RLS covers it" leaves a superuser connection unprotected.
 - **A page swap is one transaction, and an ingest is one transaction with its audit row.** Splitting them to commit earlier leaves partial documents or an unrecorded ingest.
 - **Retrieved text only ever sits inside the escaped `<documents>` block, never in system instructions.** Interpolating it into the prompt reads simpler and is the injection path.

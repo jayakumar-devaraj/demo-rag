@@ -1,5 +1,7 @@
 """Unit tests for API boundary behaviour that needs no database."""
 
+from contextlib import asynccontextmanager
+
 from fastapi.testclient import TestClient
 
 from src.routers.api import Services, create_app
@@ -56,7 +58,7 @@ def test_provider_quota_error_is_503_not_500(monkeypatch):
 
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    monkeypatch.setattr("src.routers.api._connect", _fake_connect)
+    monkeypatch.setattr("src.routers.api._tenant_tx", _fake_tenant_tx)
     c = _client(monkeypatch, embedder=_QuotaExhaustedEmbedder())
     r = c.post("/ingest", files={"file": ("a.txt", b"hello")}, headers=AUTH)
     assert r.status_code == 503 and r.json()["detail"] == "model provider unavailable"
@@ -86,13 +88,14 @@ class _NoDbConn:
         return None
 
 
-async def _fake_connect(*_):
-    return _NoDbConn()
+@asynccontextmanager
+async def _fake_tenant_tx(*_):
+    yield _NoDbConn()
 
 
 
 def test_request_id_is_echoed_and_stamped_on_logs(monkeypatch, caplog):
-    monkeypatch.setattr("src.routers.api._connect", _fake_connect)
+    monkeypatch.setattr("src.routers.api._tenant_tx", _fake_tenant_tx)
     c = _client(monkeypatch, embedder=_QuotaExhaustedEmbedder())
     with caplog.at_level("ERROR", logger="src.routers.api"):
         r = c.post("/ingest", files={"file": ("a.txt", b"hello")}, headers={**AUTH, "X-Request-ID": "req-123"})

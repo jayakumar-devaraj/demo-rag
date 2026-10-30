@@ -5,7 +5,7 @@ from collections.abc import Iterator
 import psycopg
 import pytest
 
-from src.db.connection import connect, database_url, run
+from src.db.connection import connect, database_url, open_pool, run, tenant_transaction
 from src.retrieval.hybrid import retrieve
 from src.utils.auth import Session
 from tests.conftest import FakeEmbedder
@@ -123,3 +123,49 @@ def test_retrieval_with_a_mismatched_session_returns_nothing(db):
 
     assert [s.markdown for s in run(sections("alpha", "alpha"))] == ["text of alpha"]
     assert run(sections("alpha", "bravo")) == []  # the SQL predicate and the policy disagree: no rows
+
+
+def test_a_pooled_connection_never_carries_a_tenant_to_its_next_borrower(db):
+    """One physical connection (pool of 1) serves alpha, then an unbound borrower, then bravo."""
+    _, app_url = db
+
+    async def go() -> dict:
+        out: dict = {}
+        pool = open_pool(app_url, max_size=1)
+        await pool.open(wait=True)
+        try:
+            async with tenant_transaction(pool, "alpha") as c:
+                out["alpha_pid"] = (await (await c.execute("SELECT pg_backend_pid()")).fetchone())[0]
+                out["alpha"] = await (await c.execute("SELECT markdown FROM page_registry")).fetchall()
+            async with pool.connection() as c:
+                out["unbound_pid"] = (await (await c.execute("SELECT pg_backend_pid()")).fetchone())[0]
+                out["setting"] = (await (await c.execute("SELECT current_setting('app.tenant_id', true)")).fetchone())[0]
+                out["unbound"] = (await (await c.execute("SELECT count(*) FROM page_registry")).fetchone())[0]
+            async with tenant_transaction(pool, "bravo") as c:
+                out["bravo"] = await (await c.execute("SELECT markdown FROM page_registry")).fetchall()
+        finally:
+            await pool.close()
+        return out
+
+    out = run(go())
+    assert out["alpha_pid"] == out["unbound_pid"]  # the same connection was reused
+    assert out["alpha"] == [("text of alpha",)] and out["bravo"] == [("text of bravo",)]
+    assert out["setting"] in (None, "") and out["unbound"] == 0
+
+
+def test_an_exhausted_pool_fails_as_database_unavailable(db):
+    """Waiting past CONNECT_TIMEOUT_S for a free connection raises OperationalError, which the API maps to 503."""
+    _, app_url = db
+
+    async def go() -> None:
+        pool = open_pool(app_url, max_size=1)
+        await pool.open(wait=True)
+        try:
+            async with tenant_transaction(pool, "alpha"):
+                with pytest.raises(psycopg.OperationalError):
+                    async with tenant_transaction(pool, "bravo"):
+                        pass
+        finally:
+            await pool.close()
+
+    run(go())

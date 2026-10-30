@@ -186,7 +186,7 @@ Every authenticated `/ingest`, `/v1/retrieve` and `/chat` writes one `audit_log`
 
 ### Row-level security
 
-The database enforces tenant isolation as well as the SQL predicates. Each request opens its own connection and binds the token's tenant to it (`app.tenant_id`); policies on `page_registry`, `chunks` and `audit_log` compare every row to that setting, with `FORCE ROW LEVEL SECURITY`, so a statement that omitted its `WHERE tenant_id` would still see only the bound tenant, and an unbound connection sees nothing. Writes for another tenant are rejected. The API role is not a superuser and has no `BYPASSRLS`; a superuser connection (for example the owner role in `.env` for host-run development) bypasses the policies. Rationale and the session-level binding: ADR 0002 amendment; benchmark: `docs/reports/rls-benchmark-2026-10-28.md`.
+The database enforces tenant isolation as well as the SQL predicates. Each database step of a request (a retrieval pass, the audit write, an ingest) runs in one transaction on a pooled connection with the token's tenant bound transaction-locally (`app.tenant_id`), so the binding ends at commit or rollback and never reaches the connection's next borrower; policies on `page_registry`, `chunks` and `audit_log` compare every row to that setting, with `FORCE ROW LEVEL SECURITY`, so a statement that omitted its `WHERE tenant_id` would still see only the bound tenant, and an unbound connection sees nothing. Writes for another tenant are rejected. The API role is not a superuser and has no `BYPASSRLS`; a superuser connection (for example the owner role in `.env` for host-run development) bypasses the policies. Rationale and the session-level binding: ADR 0002 amendment; benchmark: `docs/reports/rls-benchmark-2026-10-28.md`.
 
 ## 7. Key trade-offs
 
@@ -205,8 +205,10 @@ The database enforces tenant isolation as well as the SQL predicates. Each reque
   1M vectors. The next step would be partitioning `chunks` by `tenant_id` before switching stores.
 - **Embedding dimension** is fixed at 384 in the schema. Changing models means a migration and
   re-embedding.
-- **Per-request connection, no pool.** That's fine for a prototype. Under concurrency, add
-  `psycopg_pool` and bound it.
+- **Pooled connections, short transactions.** A replica holds at most 10 connections (`POOL_MAX_SIZE`).
+  `/chat` and `/v1/retrieve` hold none while a model runs; an ingest keeps one transaction across its
+  embedding calls, so its pages and audit row commit together. A request that waits 5 s for a free
+  connection gets 503.
 - **Cost per question.** Up to 3 sufficiency calls, 1 synthesis and about 3 Ragas metric calls. The
   triad runs inline, which adds latency; moving it to a background task would decouple it.
 - **Rename detection** needs at least one unchanged page. A fully rewritten, renamed file becomes a

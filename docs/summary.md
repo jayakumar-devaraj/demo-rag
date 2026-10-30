@@ -36,7 +36,7 @@ audit trail, row-level security and signed tokens were added from 2026-10-25 to 
 fails when they drift.
 
 <!-- figures:start -->
-- **Tests collected:** 129 (of which 36 need the real Postgres with pgvector); calls to real model providers are a separate, opt-in `live` set.
+- **Tests collected:** 130 (of which 36 need the real Postgres with pgvector); calls to real model providers are a separate, opt-in `live` set.
 - **Coverage:** 92 % of 906 statements. Report header: "Coverage at 1a75804 from CI run 40926258798 (all tests except live)".
 <!-- figures:end -->
 

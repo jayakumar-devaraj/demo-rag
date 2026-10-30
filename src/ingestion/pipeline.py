@@ -1,5 +1,6 @@
 """Ingestion pipeline: worker → SHA-256 gate → chunk → embed → transactional write."""
 
+import asyncio
 import logging
 from typing import Protocol
 
@@ -61,7 +62,7 @@ async def ingest_file(
     otherwise the filename is the document key. Pages whose hash is already registered skip
     chunking and embedding entirely.
     """
-    units = worker_for(filename).extract(data)
+    units = await asyncio.to_thread(worker_for(filename).extract, data)  # CPU-bound: off the loop
     hashes = [signature(u.markdown) for u in units]
     doc_key = doc_key or await find_doc_by_hashes(conn, tenant_id, hashes) or filename
     results = []

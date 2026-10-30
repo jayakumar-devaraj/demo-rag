@@ -62,3 +62,37 @@ def test_long_table_split_repeats_header_in_every_chunk():
 def test_paragraphs_carry_their_heading():
     chunks = chunk("# A\n\npara a\n\n# B\n\npara b")
     assert chunks == ["# A\n\npara a", "# B\n\npara b"]
+
+
+def test_parsing_runs_off_the_event_loop(monkeypatch):
+    """PDF/XLSX/DOCX parsing is CPU-bound; inline it would block every request on the replica."""
+    import threading
+
+    from src.db.connection import run
+    from src.ingestion import pipeline
+
+    threads = {}
+
+    class _RecordingWorker:
+        """TEST DOUBLE: a format worker that records which thread parsed the file."""
+
+        def extract(self, data: bytes) -> list:
+            threads["parse"] = threading.get_ident()
+            return []
+
+    async def _no_existing_doc(*_):
+        return None
+
+    async def _nothing_purged(*_):
+        return 0
+
+    monkeypatch.setattr(pipeline, "worker_for", lambda _: _RecordingWorker())
+    monkeypatch.setattr(pipeline, "find_doc_by_hashes", _no_existing_doc)
+    monkeypatch.setattr(pipeline, "delete_missing_pages", _nothing_purged)
+
+    async def go():
+        threads["loop"] = threading.get_ident()
+        await pipeline.ingest_file(None, None, "tenant-a", "a.pdf", b"")
+
+    run(go())
+    assert threads["parse"] != threads["loop"]

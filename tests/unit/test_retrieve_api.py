@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
 
 import httpx
 import openai
@@ -49,7 +50,10 @@ class _RaisingLLM:
 
 @pytest.fixture
 def client(monkeypatch):
-    """Factory for a TestClient whose DB connect and `retrieve` are replaced; returns (client, tenants_seen)."""
+    """Factory for a TestClient whose DB transactions and `retrieve` are replaced; returns (client, tenants_seen).
+
+    `make.held` counts the tenant transactions (pooled connections) open at any moment.
+    """
     monkeypatch.setenv("TENANT_TOKENS", "tok-a:tenant-a")
     tenants: list[str] = []
 
@@ -58,13 +62,18 @@ def client(monkeypatch):
             tenants.append(session.tenant_id)
             return [_section(1)]
 
-        async def connect(*_):
-            return _Conn()
+        @asynccontextmanager
+        async def tenant_tx(request, tenant_id):
+            make.held += 1
+            try:
+                yield _Conn()
+            finally:
+                make.held -= 1
 
         async def record_audit(conn, session, action, outcome, doc_key=None, detail=None):
             make.audits.append((session.tenant_id, action, outcome, detail))
 
-        monkeypatch.setattr("src.routers.api._connect", connect)
+        monkeypatch.setattr("src.routers.api._tenant_tx", tenant_tx)
         monkeypatch.setattr("src.routers.api.record_audit", audit or record_audit)
         monkeypatch.setattr("src.routers.api.retrieve", retrieve or default_retrieve)
         base = {"embedder": FakeEmbedder(), "llm": ScriptedLLM(), "triad": None}
@@ -72,7 +81,40 @@ def client(monkeypatch):
         return TestClient(app, raise_server_exceptions=raise_server_exceptions), tenants
 
     make.audits = []
+    make.held = 0
     return make
+
+
+class _HeldConnectionsLLM:
+    """TEST DOUBLE: answers every structured call from `scripts`, recording how many connections are held."""
+
+    def __init__(self, held, **scripts: list) -> None:
+        self.held, self.scripts, self.seen = held, {k: list(v) for k, v in scripts.items()}, []
+
+    def with_structured_output(self, schema):
+        llm = self
+
+        class _Runnable:
+            async def ainvoke(self, messages, config=None):
+                llm.seen.append(llm.held())
+                return llm.scripts[schema.__name__].pop(0)
+
+        return _Runnable()
+
+
+def test_no_connection_is_held_while_the_model_runs(client):
+    """A model call can take seconds; a pooled connection held through it starves other requests."""
+    from src.agents.synthesis import Answer
+
+    make = client
+    retrieve_llm = _HeldConnectionsLLM(lambda: make.held, SufficiencyVerdict=[SufficiencyVerdict(sufficient=True)])
+    chat_llm = _HeldConnectionsLLM(lambda: make.held, SufficiencyVerdict=[SufficiencyVerdict(sufficient=True)],
+                                   Answer=[Answer(answer="Budget 4200", insufficient=False, citations=["d"])])
+    c, _ = make(llm=chat_llm, retrieve_llm=retrieve_llm)
+    assert c.post("/v1/retrieve", json=BODY, headers=AUTH).status_code == 200
+    assert c.post("/chat", json=BODY, headers=AUTH).status_code == 200
+    assert retrieve_llm.seen == [0] and chat_llm.seen == [0, 0]
+    assert make.held == 0
 
 
 def test_missing_or_bad_token_is_401(client):

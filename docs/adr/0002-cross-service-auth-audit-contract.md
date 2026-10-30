@@ -103,6 +103,16 @@ runs many statements across LLM calls; one request-long transaction would hold a
 snapshot open for the whole model call. This is safe only because each request opens and closes its own
 connection; if connections are ever pooled, the setting must be reset on release.
 
+**Addendum 2026-10-29: pooled connections, transaction-local binding.** The API now borrows connections
+from a psycopg-pool `AsyncConnectionPool` and binds the tenant with `set_config('app.tenant_id', <tenant>,
+true)` inside one transaction per database step (`tenant_transaction`): a retrieval pass, the audit write,
+or an ingest with its audit row. The setting ends at commit or rollback, so a reused connection starts
+unbound and sees no rows (`test_a_pooled_connection_never_carries_a_tenant_to_its_next_borrower`, which
+fails with a session-level binding). The concern above is kept for questions: no `/chat` or `/v1/retrieve`
+transaction spans a model call, because each retrieval pass commits before the sufficiency check. An
+ingest still embeds inside its one transaction, as before. `connect(tenant_id)` with its
+session-level binding remains for scripts and tests that own their connection.
+
 Policies (migration 0003): `page_registry` and `chunks` are `ENABLE`d and `FORCE`d with a policy that
 compares `tenant_id` to `current_setting('app.tenant_id', true)` for both reads and writes; `audit_log`
 has a `SELECT` policy and an `INSERT` policy. An unbound connection compares against NULL and sees no

@@ -15,7 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from src.db.audit import Action, AuditEntry, list_audit, record_audit
-from src.db.connection import connect, require_schema_revision
+from src.db.connection import open_pool, require_schema_revision, tenant_transaction
 from src.eval.triad import TriadScorer, TriadScores, numeric_groundedness
 from src.ingestion.pipeline import Embedder, IngestResult, ingest_file
 from src.ingestion.workers import UnsupportedFormatError, worker_for
@@ -145,24 +145,30 @@ def _services(request: Request) -> Services:
     return request.app.state.services
 
 
-async def _connect(tenant_id: str) -> psycopg.AsyncConnection:
+@asynccontextmanager
+async def _tenant_tx(request: Request, tenant_id: str) -> AsyncIterator[psycopg.AsyncConnection]:
+    """One short transaction on a pooled connection, bound to the caller's tenant. Held only for database work,
+    never across a model call. An unreachable database or an exhausted pool raises OperationalError (→ 503)."""
     try:
-        return await connect(tenant_id)
+        async with tenant_transaction(request.app.state.pool, tenant_id) as conn:
+            yield conn
     except psycopg.OperationalError as exc:
         log.error("db_unavailable", extra={"error": type(exc).__name__})
-        raise HTTPException(503, "database unavailable") from exc
+        raise
 
 
-async def _audit_failure(conn: psycopg.AsyncConnection, session: Session, action: Action, exc: Exception) -> None:
-    """Record that an authenticated request failed; this must never mask the failure being reported."""
+async def _audit_failure(request: Request, session: Session, action: Action, exc: Exception) -> None:
+    """Record that an authenticated request failed, in its own transaction (the request's work rolled back);
+    this must never mask the failure being reported."""
     try:
-        await record_audit(conn, session, action, "error", detail={"error": type(exc).__name__})
+        async with _tenant_tx(request, session.tenant_id) as conn:
+            await record_audit(conn, session, action, "error", detail={"error": type(exc).__name__})
     except psycopg.Error:
         log.error("audit_error_not_recorded", extra={"action": action, "tenant_id": session.tenant_id})
 
 
 @router.post("/ingest", response_model=IngestResult)
-async def ingest(file: UploadFile, session: Annotated[Session, Depends(ingest_session)],
+async def ingest(request: Request, file: UploadFile, session: Annotated[Session, Depends(ingest_session)],
                  services: Annotated[Services, Depends(_services)]) -> IngestResult:
     """Ingest one document into the caller's tenant."""
     if services.embedder is None:
@@ -174,11 +180,10 @@ async def ingest(file: UploadFile, session: Annotated[Session, Depends(ingest_se
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "file too large")
-    conn = await _connect(session.tenant_id)
     filename = file.filename or "upload"
     try:
         # One transaction: the document's pages and its audit row commit or roll back together.
-        async with conn.transaction():
+        async with _tenant_tx(request, session.tenant_id) as conn:
             result = await ingest_file(conn, services.embedder, session.tenant_id, filename, data)
             await record_audit(conn, session, "ingest", "ok", doc_key=result.doc_key,
                                detail={"filename": filename, "units": len(result.units),
@@ -187,43 +192,46 @@ async def ingest(file: UploadFile, session: Annotated[Session, Depends(ingest_se
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
     except PROVIDER_ERRORS as exc:
-        await _audit_failure(conn, session, "ingest", exc)
+        await _audit_failure(request, session, "ingest", exc)
         raise _provider_down(exc) from exc
     except (ValueError, KeyError) as exc:  # unparseable file content from the caller
-        await _audit_failure(conn, session, "ingest", exc)
+        await _audit_failure(request, session, "ingest", exc)
         raise HTTPException(422, f"could not parse file: {type(exc).__name__}") from exc
-    finally:
-        await conn.close()
+
+
+def _retriever(request: Request, services: Services, session: Session) -> Any:
+    """The graph's retriever: each pass takes a pooled connection for its query only."""
+
+    async def bound_retriever(query: str) -> list[ParentSection]:
+        async with _tenant_tx(request, session.tenant_id) as conn:
+            return await retrieve(conn, services.embedder, session, query)
+
+    return bound_retriever
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, session: Annotated[Session, Depends(query_session)],
+async def chat(request: Request, body: ChatRequest, session: Annotated[Session, Depends(query_session)],
                services: Annotated[Services, Depends(_services)]) -> ChatResponse:
     """Answer a question from the caller's tenant only, via the self-correcting graph."""
     if services.llm is None or services.embedder is None:
         raise HTTPException(503, "no LLM/embedding provider configured")
-    conn = await _connect(session.tenant_id)
     try:
-        async def bound_retriever(query: str) -> list[ParentSection]:
-            return await retrieve(conn, services.embedder, session, query)
-
-        graph = build_graph(bound_retriever, services.llm)
+        graph = build_graph(_retriever(request, services, session), services.llm)
         state = await graph.ainvoke({"question": body.question, "pending_queries": [body.question]},
                                     config={"callbacks": trace_callbacks()})
         # No audit row, no answer: a failed insert here fails the request instead of releasing unrecorded data.
-        await record_audit(conn, session, "chat", "ok", detail={
-            "attempts": state["attempts"], "queries": len(state["queries_run"]),
-            "sections": len(state["sections"]), "insufficient": state["answer"].insufficient})
+        async with _tenant_tx(request, session.tenant_id) as conn:
+            await record_audit(conn, session, "chat", "ok", detail={
+                "attempts": state["attempts"], "queries": len(state["queries_run"]),
+                "sections": len(state["sections"]), "insufficient": state["answer"].insufficient})
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
     except TimeoutError as exc:
-        await _audit_failure(conn, session, "chat", exc)
+        await _audit_failure(request, session, "chat", exc)
         raise HTTPException(504, "model call timed out") from exc
     except PROVIDER_ERRORS as exc:
-        await _audit_failure(conn, session, "chat", exc)
+        await _audit_failure(request, session, "chat", exc)
         raise _provider_down(exc) from exc
-    finally:
-        await conn.close()
     answer, contexts = state["answer"], [s.markdown for s in state["sections"]]
     ratio, unsupported = numeric_groundedness(answer.answer, contexts)
     triad = TriadScores(numeric_groundedness=ratio, unsupported_numbers=unsupported)
@@ -245,7 +253,7 @@ async def chat(body: ChatRequest, session: Annotated[Session, Depends(query_sess
     500: {"description": "Unexpected server error (plain-text body)."},
 })
 async def retrieve_context(
-    body: RetrieveRequest, session: Annotated[Session, Depends(query_session)],
+    request: Request, body: RetrieveRequest, session: Annotated[Session, Depends(query_session)],
     services: Annotated[Services, Depends(_services)],
     x_timeout_ms: Annotated[int | None, Header(ge=1, le=RETRIEVE_MAX_TIMEOUT_MS, description=(
         "Caller's deadline in milliseconds for the whole call. Absent: the server default applies."))] = None,
@@ -255,29 +263,24 @@ async def retrieve_context(
     if llm is None or services.embedder is None:
         raise HTTPException(503, "no LLM/embedding provider configured")
     timeout_s = x_timeout_ms / 1000 if x_timeout_ms else RETRIEVE_DEFAULT_TIMEOUT_S
-    conn = await _connect(session.tenant_id)
     try:
-        async def bound_retriever(query: str) -> list[ParentSection]:
-            return await retrieve(conn, services.embedder, session, query)
-
-        graph = build_graph(bound_retriever, llm, retrieve_only=True)
+        graph = build_graph(_retriever(request, services, session), llm, retrieve_only=True)
         async with asyncio.timeout(timeout_s):
             state = await graph.ainvoke({"question": body.question, "pending_queries": [body.question]},
                                         config={"callbacks": trace_callbacks()})
         insufficient = not state["verdict"].sufficient
-        await record_audit(conn, session, "retrieve", "ok", detail={
-            "attempts": state["attempts"], "queries": len(state["queries_run"]),
-            "sections": 0 if insufficient else len(state["sections"]), "insufficient": insufficient})
+        async with _tenant_tx(request, session.tenant_id) as conn:
+            await record_audit(conn, session, "retrieve", "ok", detail={
+                "attempts": state["attempts"], "queries": len(state["queries_run"]),
+                "sections": 0 if insufficient else len(state["sections"]), "insufficient": insufficient})
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
     except (TimeoutError, *PROVIDER_TIMEOUTS) as exc:
-        await _audit_failure(conn, session, "retrieve", exc)
+        await _audit_failure(request, session, "retrieve", exc)
         raise HTTPException(504, "model call timed out") from exc
     except PROVIDER_ERRORS as exc:
-        await _audit_failure(conn, session, "retrieve", exc)
+        await _audit_failure(request, session, "retrieve", exc)
         raise _provider_down(exc) from exc
-    finally:
-        await conn.close()
     log.info("retrieve_answered", extra={"tenant_id": session.tenant_id, "attempts": state["attempts"],
                                          "insufficient": insufficient, "sections": len(state["sections"])})
     return RetrieveResponse(sections=[] if insufficient else state["sections"], insufficient=insufficient,
@@ -285,18 +288,16 @@ async def retrieve_context(
 
 
 @router.get("/audit", response_model=AuditPage)
-async def audit_trail(session: Annotated[Session, Depends(query_session)],
+async def audit_trail(request: Request, session: Annotated[Session, Depends(query_session)],
                       limit: Annotated[int, Query(ge=1, le=200)] = 50,
                       before_id: Annotated[int | None, Query(ge=1)] = None,
                       action: Action | None = None) -> AuditPage:
     """The caller's own tenant audit trail, newest first. The tenant comes only from the token."""
-    conn = await _connect(session.tenant_id)
     try:
-        entries = await list_audit(conn, session.tenant_id, limit, before_id, action)
+        async with _tenant_tx(request, session.tenant_id) as conn:
+            entries = await list_audit(conn, session.tenant_id, limit, before_id, action)
     except psycopg.OperationalError as exc:
         raise HTTPException(503, "database unavailable") from exc
-    finally:
-        await conn.close()
     return AuditPage(entries=entries, next_before_id=entries[-1].id if len(entries) == limit else None)
 
 
@@ -309,15 +310,18 @@ async def health(services: Annotated[Services, Depends(_services)]) -> dict[str,
 def create_app(services: Services) -> FastAPI:
     """Build the FastAPI app around injected services."""
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        """Verify the migrated schema at startup; an unreachable or unmigrated database fails startup loudly."""
-        conn = await connect()
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """Open the pool and verify the migrated schema; an unreachable or unmigrated database fails startup loudly."""
+        pool = open_pool()
+        await pool.open(wait=True)
         try:
-            await require_schema_revision(conn)
+            async with pool.connection() as conn:
+                await require_schema_revision(conn)
+            log.info("schema_verified")
+            app.state.pool = pool
+            yield
         finally:
-            await conn.close()
-        log.info("schema_verified")
-        yield
+            await pool.close()
 
     app = FastAPI(title="multi-tenant-agentic-rag", lifespan=lifespan)
     install_request_id_logging()
